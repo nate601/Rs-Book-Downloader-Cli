@@ -1,6 +1,10 @@
-use std::io::{prelude::*, stdin};
+use std::io::prelude::*;
+use std::io::stdin;
+use std::io::BufReader;
 use std::net::TcpStream;
 use std::thread;
+use std::thread::sleep;
+use std::time::Duration;
 
 type DccConnection = TcpStream;
 
@@ -14,13 +18,6 @@ enum ConnectionStatus
 
 fn main()
 {
-    // let ip = 413319771i32;
-    // let bytes = ip.to_be_bytes();
-    // for i in bytes {
-    //     println!("{}", i);
-
-    // }
-
     //Connect to server
     let mut connex = IrcConnection::connect("127.0.0.1:6667").unwrap();
 
@@ -31,6 +28,7 @@ fn main()
         .unwrap();
     connex.send_command_args("JOIN", "#bookz").unwrap();
 
+    assert!(matches!(connex.status, ConnectionStatus::Connected));
     //Ask user for desired book
     let mut name = String::new();
     println!("Book Title?");
@@ -41,17 +39,29 @@ fn main()
     connex
         .send_message("#bookz", &name)
         .expect("Unable to send message");
+    let mut buf = String::new();
+    loop
+    {
+        if connex.reader.fill_buf().unwrap().is_empty()
+        {
+            println!("No new data, waiting 1 sec");
+            sleep(Duration::from_secs(1));
+        }
+        else
+        {
+            connex.reader.read_line(&mut buf).unwrap();
+            println!("{:?}", buf);
+            buf.clear();
+        }
+            
+    }
 }
-// fn connect_dcc(ip_address: String, port: &str) -> DccConnection
-// {
-//     let sock = IrcConnection::connect(ip_address + ":" + port);
-//     return sock.expect("Unable to connect to DCC");
-// }
 
 struct IrcConnection
 {
     sock: TcpStream,
     status: ConnectionStatus,
+    reader: BufReader<TcpStream>,
 }
 impl IrcConnection
 {
@@ -61,6 +71,7 @@ impl IrcConnection
         match sock
         {
             Ok(v) => Ok(IrcConnection {
+                reader: BufReader::new(v.try_clone().unwrap()),
                 sock: v,
                 status: ConnectionStatus::Connected,
             }),
