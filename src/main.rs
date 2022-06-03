@@ -10,7 +10,7 @@ type DccConnection = TcpStream;
 
 enum ConnectionStatus
 {
-    PreConnect,
+    Disconnected,
     Connected,
     WaitingForResults,
     WaitingForBook,
@@ -21,6 +21,13 @@ fn main()
     //Connect to server
     let mut connex = IrcConnection::connect("127.0.0.1:6667").unwrap();
 
+    //start read loop thread
+    // read_loop(&mut connex);
+    let mut reader = connex.get_reader();
+    let readLoopHandle = thread::spawn(move || {
+
+        read_loop(&mut reader);
+    });
     //login to #bookz channel
     connex.send_command_args("NICK", "rapere").unwrap();
     connex
@@ -39,21 +46,16 @@ fn main()
     connex
         .send_message("#bookz", &name)
         .expect("Unable to send message");
+}
+
+fn read_loop(reader: &mut BufReader<TcpStream>) -> ! {
     let mut buf = String::new();
     loop
     {
-        if connex.reader.fill_buf().unwrap().is_empty()
-        {
-            println!("No new data, waiting 1 sec");
-            sleep(Duration::from_secs(1));
-        }
-        else
-        {
-            connex.reader.read_line(&mut buf).unwrap();
-            println!("{:?}", buf);
-            buf.clear();
-        }
-            
+        reader.read_line(&mut buf).unwrap();
+        println!("{:?}", buf);
+        buf.clear();
+        
     }
 }
 
@@ -61,7 +63,6 @@ struct IrcConnection
 {
     sock: TcpStream,
     status: ConnectionStatus,
-    reader: BufReader<TcpStream>,
 }
 impl IrcConnection
 {
@@ -71,12 +72,15 @@ impl IrcConnection
         match sock
         {
             Ok(v) => Ok(IrcConnection {
-                reader: BufReader::new(v.try_clone().unwrap()),
                 sock: v,
                 status: ConnectionStatus::Connected,
             }),
             Err(_e) => panic!("Unable to connect to server."),
         }
+    }
+    fn get_reader(&self) -> BufReader<TcpStream>
+    {
+        BufReader::new(self.sock.try_clone().unwrap())
     }
     fn send_message(&mut self, channel: &str, message: &str) -> Result<usize, &'static str>
     {
