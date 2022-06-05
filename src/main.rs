@@ -19,10 +19,9 @@ fn main()
 
     //start read loop thread
     // read_loop(&mut connex);
-    let mut reader = connex.get_reader();
-    let readLoopHandle = thread::spawn(move || {
-
-        read_loop(&mut reader);
+    let read_connex = connex.try_clone().unwrap();
+    let _read_loop_handle = thread::spawn(move || {
+        read_loop(read_connex);
     });
     //login to #bookz channel
     connex.send_command_args("NICK", "rapere").unwrap();
@@ -42,17 +41,96 @@ fn main()
     connex
         .send_message("#bookz", &name)
         .expect("Unable to send message");
+    //wait to receive PackList
 }
 
-fn read_loop(reader: &mut BufReader<TcpStream>) -> ! {
+fn read_loop(connex: IrcConnection) -> !
+{
     let mut buf = String::new();
+    let mut reader = connex.get_reader();
     loop
     {
         reader.read_line(&mut buf).unwrap();
+        buf = buf.trim_end_matches("\r\n").to_string();
+        // println!("{:?}", buf);
+        let message = parse_message(&buf).unwrap();
         println!("{:?}", buf);
+        println!("{:#?}", message);
         buf.clear();
-        
     }
+}
+#[derive(Debug)]
+enum MessageCommand
+{
+    PING
+    {
+        token: String,
+    },
+    PRIVMSG
+    {
+        messageTarget: String,
+        text: String,
+    },
+    NONHANDLED,
+    EMPTY,
+}
+#[derive(Debug)]
+struct IrcMessage
+{
+    prefix: Option<String>,
+    command: MessageCommand,
+    command_string: String,
+    params: Vec<String>,
+}
+
+fn parse_message(message: &String) -> Result<IrcMessage, &'static str>
+{
+    let mut split_message: Vec<&str> = message.split(" ").collect();
+    let mut prefix: Option<String> = None;
+    let mut params: Vec<String> = Vec::new();
+    //See if message starts with prefix
+    if message.starts_with(":")
+    {
+        //if it does, then record and drop the prefix.
+        prefix = Some(split_message[0].to_string());
+        split_message.remove(0);
+    }
+    let command_string = split_message[0];
+    split_message.remove(0);
+
+    loop
+    {
+        if split_message.len() == 0 || split_message[0].starts_with(":")
+        {
+            break;
+        }
+        params.push(split_message[0].to_string());
+        split_message.remove(0);
+    }
+    if split_message.len() != 0
+    {
+        let mut trailing = split_message.join(" ");
+        trailing = trailing[1..trailing.len()].to_string();
+        params.push(trailing);
+    }
+
+    let command = match command_string.to_lowercase().as_str()
+    {
+        "ping" => MessageCommand::PING {
+            token: params.get(0).unwrap().to_string(),
+        },
+        "privmsg" => MessageCommand::PRIVMSG {
+            messageTarget: params.get(0).unwrap().to_string(),
+            text: params.get(1).unwrap().to_string(),
+        },
+        _ => MessageCommand::NONHANDLED,
+    };
+    return Ok(IrcMessage {
+        prefix,
+        command,
+        command_string: command_string.to_string(),
+        params,
+    });
 }
 
 struct IrcConnection
