@@ -78,9 +78,21 @@ impl IrcConnection
     {
         BufReader::new(self.sock.try_clone().unwrap())
     }
-    fn send_message(&mut self, channel: &str, message: &str) -> Result<usize, &'static str>
+    fn new_from_stream(sock: &TcpStream) -> Result<IrcConnection, &'static str>
     {
-        self.send_command_multiple_args("PRIVMSG", vec![channel, " :", message])
+        Ok(IrcConnection {
+            sock: sock.try_clone().unwrap(),
+            status: ConnectionStatus::Connected,
+        })
+    }
+    fn send_bytes(&mut self, bytes: &[u8]) -> Result<usize, &'static str>
+    {
+        let written_byte_size = self.sock.write(bytes);
+        match written_byte_size
+        {
+            Ok(v) => return Ok(v),
+            Err(_e) => return Err("Unable to send data on TCP socket"),
+        }
     }
     fn send_command(&mut self, command: &str) -> Result<usize, &'static str>
     {
@@ -99,17 +111,16 @@ impl IrcConnection
     {
         return self.send_command_args(command, arguments.join("").as_str());
     }
+    fn send_message(&mut self, channel: &str, message: &str) -> Result<usize, &'static str>
+    {
+        self.send_command_multiple_args("PRIVMSG", vec![channel, " :", message])
+    }
     fn send_string(&mut self, message: &str) -> Result<usize, &'static str>
     {
         self.send_bytes(message.as_bytes())
     }
-    fn send_bytes(&mut self, bytes: &[u8]) -> Result<usize, &'static str>
+    fn try_clone(&self) -> std::io::Result<IrcConnection>
     {
-        let written_byte_size = self.sock.write(bytes);
-        match written_byte_size
-        {
-            Ok(v) => return Ok(v),
-            Err(_e) => return Err("Unable to send data on TCP socket"),
-        }
+        Ok(IrcConnection::new_from_stream(&self.sock.try_clone().unwrap()).unwrap())
     }
 }
