@@ -1,7 +1,11 @@
 use std::io::prelude::*;
 use std::io::{stdin, BufReader};
 use std::net::TcpStream;
+use std::sync::mpsc;
 use std::thread;
+use message_prefix::*;
+
+mod message_prefix;
 
 enum ConnectionStatus
 {
@@ -16,11 +20,12 @@ fn main()
     //Connect to server
     let mut connex = IrcConnection::connect("127.0.0.1:6667").unwrap();
 
+    let (tx, rx) = mpsc::channel();
     //start read loop thread
     // read_loop(&mut connex);
     let read_connex = connex.try_clone().unwrap();
     let _read_loop_handle = thread::spawn(move || {
-        read_loop(read_connex);
+        read_loop(read_connex, tx);
     });
     //login to #bookz channel
     connex.send_command_args("NICK", "rapere").unwrap();
@@ -40,10 +45,12 @@ fn main()
     connex
         .send_message("#bookz", &name)
         .expect("Unable to send message");
-    //wait to receive PackList
+    //wait to receive DCC Send request for packlist
+    let dcc_send_request = rx.recv().unwrap();
+    println!("Send request received {:#?} ", dcc_send_request)
 }
 
-fn read_loop(mut connex: IrcConnection) -> !
+fn read_loop(mut connex: IrcConnection, tx: std::sync::mpsc::Sender<IrcMessage>) -> !
 {
     let mut buf = String::new();
     let mut reader = connex.get_reader();
@@ -62,24 +69,32 @@ fn read_loop(mut connex: IrcConnection) -> !
                 connex.send_command_args("PONG", token.as_str()).unwrap();
             }
             MessageCommand::PRIVMSGCTCP {
-                message_target,
-                text,
+                message_target: _,
+                text: _,
                 inner_message,
-                inner_text,
-                inner_params,
-            } =>
+                inner_text: _,
+                inner_params: _,
+            } => match inner_message.unwrap()
             {
-                match inner_message.unwrap(){
-                    CtcpMessage::DCC { queryType, argument, address, port } => {
-                        match queryType{
-                            DCCQueryType::SEND => println!("New file: {} on {}:{}", argument, address, port),
-                            DCCQueryType::CHAT => println!("Attempted chat {}:{}", address, port),
-                            _ => {}
-                        }
-                    },
-                    _ => {}
-                }
-            }
+                CtcpMessage::DCC {
+                    queryType,
+                    argument,
+                    address,
+                    port,
+                } => match queryType
+                {
+                    DCCQueryType::SEND =>
+                    {
+                        println!("New file: {} on {}:{}", argument, address, port);
+                        tx.send(parse_message(&buf).unwrap()).unwrap();
+                    }
+                    DCCQueryType::CHAT => println!("Attempted chat {}:{}", address, port),
+                    _ =>
+                    {}
+                },
+                _ =>
+                {}
+            },
             MessageCommand::NONHANDLED =>
             {}
             _ =>
@@ -145,7 +160,7 @@ enum DCCQueryType
 #[derive(Debug)]
 struct IrcMessage
 {
-    prefix: Option<String>,
+    prefix: Option<MessagePrefix>,
     command: MessageCommand,
     command_string: String,
     params: Vec<String>,
@@ -154,13 +169,15 @@ struct IrcMessage
 fn parse_message(message: &String) -> Result<IrcMessage, &'static str>
 {
     let mut split_message: Vec<&str> = message.split(" ").collect();
-    let mut prefix: Option<String> = None;
+    let mut prefix: Option<MessagePrefix> = None;
     let mut params: Vec<String> = Vec::new();
     //See if message starts with prefix
     if message.starts_with(":")
     {
         //if it does, then record and drop the prefix.
-        prefix = Some(split_message[0].to_string());
+        // prefix = Some(split_message[0].to_string());
+        prefix = MessagePrefix::create_from_string(split_message[0].to_string()).ok();
+
         split_message.remove(0);
     }
     let command_string = split_message[0];
