@@ -1,12 +1,8 @@
 use std::io::prelude::*;
-use std::io::stdin;
-use std::io::BufReader;
+use std::io::{stdin, BufReader};
 use std::net::TcpStream;
 use std::thread;
-use std::thread::sleep;
-use std::time::Duration;
 
-type DccConnection = TcpStream;
 
 enum ConnectionStatus
 {
