@@ -3,7 +3,6 @@ use std::io::{stdin, BufReader};
 use std::net::TcpStream;
 use std::thread;
 
-
 enum ConnectionStatus
 {
     Disconnected,
@@ -44,7 +43,7 @@ fn main()
     //wait to receive PackList
 }
 
-fn read_loop(connex: IrcConnection) -> !
+fn read_loop(mut connex: IrcConnection) -> !
 {
     let mut buf = String::new();
     let mut reader = connex.get_reader();
@@ -56,6 +55,11 @@ fn read_loop(connex: IrcConnection) -> !
         let message = parse_message(&buf).unwrap();
         println!("{:?}", buf);
         println!("{:#?}", message);
+        match message.command{
+            MessageCommand::PING { token } => {connex.send_command_args("PONG", token.as_str()).unwrap();},
+            MessageCommand::NONHANDLED => {},
+            _ => {}
+        }
         buf.clear();
     }
 }
@@ -71,8 +75,46 @@ enum MessageCommand
         messageTarget: String,
         text: String,
     },
+    PRIVMSGCTCP
+    {
+        message_target: String,
+        text: String,
+        inner_message: Option<CtcpMessage>,
+        inner_text: String,
+        inner_params: Vec<String>
+    },
     NONHANDLED,
     EMPTY,
+}
+#[derive(Debug)]
+enum CtcpMessage {
+    ACTION
+    {
+        text: String
+    },
+    CLIENTINFO
+    {
+        token: String
+    },
+    DCC
+    {
+        queryType: DCCQueryType,
+        argument: String,
+        address: String,
+        port: String
+    },
+    PING 
+    {
+        token: String
+    },
+    UNHANDLED
+}
+#[derive(Debug)]
+enum DCCQueryType
+{
+    SEND,
+    CHAT,
+    UNHANDLED
 }
 #[derive(Debug)]
 struct IrcMessage
@@ -119,10 +161,45 @@ fn parse_message(message: &String) -> Result<IrcMessage, &'static str>
         "ping" => MessageCommand::PING {
             token: params.get(0).unwrap().to_string(),
         },
-        "privmsg" => MessageCommand::PRIVMSG {
-            messageTarget: params.get(0).unwrap().to_string(),
-            text: params.get(1).unwrap().to_string(),
-        },
+        "privmsg" if params.get(1).unwrap().to_string().starts_with("\u{1}") == false =>
+        {
+            MessageCommand::PRIVMSG {
+                messageTarget: params.get(0).unwrap().to_string(),
+                text: params.get(1).unwrap().to_string(),
+            }
+        }
+        "privmsg" if params.get(1).unwrap().to_string().starts_with("\u{1}") == true =>
+        {
+            let inner_text =  params.get(1).unwrap().trim_start_matches("\u{1}").trim_end_matches("\u{1}").to_string();
+            let inner_text_split: Vec<String> = inner_text.split(" ").map(|x|{x.to_string()}).collect();
+            // println!("#### INNER_TEXT_SPLIT {:#?}",inner_text_split);
+            MessageCommand::PRIVMSGCTCP {
+                message_target: params.get(0).unwrap().to_string(),
+                text: params.get(1).unwrap().to_string(),
+                inner_message: match inner_text_split[0].to_lowercase().as_str(){
+                    //#### INNER_TEXT_SPLIT [
+                    //    "DCC",
+                    //    "CHAT",
+                    //    "chat",
+                    //    "413319771",
+                    //    "1023",
+                    //]
+                    "dcc" => Some(CtcpMessage::DCC{
+                        queryType: match inner_text_split[1].to_lowercase().as_str(){
+                            "send" => DCCQueryType::SEND,
+                            "chat" => DCCQueryType::CHAT,
+                            _ => DCCQueryType::UNHANDLED
+                        },
+                        argument: inner_text_split[2].to_string(),
+                        address: inner_text_split[3].to_string(),
+                        port: inner_text_split[4].to_string(),
+                    }),
+                    _ => Some(CtcpMessage::UNHANDLED)
+                },
+                inner_text ,
+                inner_params: inner_text_split,
+            }
+        }
         _ => MessageCommand::NONHANDLED,
     };
     return Ok(IrcMessage {
@@ -195,6 +272,7 @@ impl IrcConnection
     }
     fn send_string(&mut self, message: &str) -> Result<usize, &'static str>
     {
+        println!("Sending: {}", message);
         self.send_bytes(message.as_bytes())
     }
     fn try_clone(&self) -> std::io::Result<IrcConnection>
