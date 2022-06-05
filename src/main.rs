@@ -55,10 +55,35 @@ fn read_loop(mut connex: IrcConnection) -> !
         let message = parse_message(&buf).unwrap();
         println!("{:?}", buf);
         println!("{:#?}", message);
-        match message.command{
-            MessageCommand::PING { token } => {connex.send_command_args("PONG", token.as_str()).unwrap();},
-            MessageCommand::NONHANDLED => {},
-            _ => {}
+        match message.command
+        {
+            MessageCommand::PING { token } =>
+            {
+                connex.send_command_args("PONG", token.as_str()).unwrap();
+            }
+            MessageCommand::PRIVMSGCTCP {
+                message_target,
+                text,
+                inner_message,
+                inner_text,
+                inner_params,
+            } =>
+            {
+                match inner_message.unwrap(){
+                    CtcpMessage::DCC { queryType, argument, address, port } => {
+                        match queryType{
+                            DCCQueryType::SEND => println!("New file: {} on {}:{}", argument, address, port),
+                            DCCQueryType::CHAT => println!("Attempted chat {}:{}", address, port),
+                            _ => {}
+                        }
+                    },
+                    _ => {}
+                }
+            }
+            MessageCommand::NONHANDLED =>
+            {}
+            _ =>
+            {}
         }
         buf.clear();
     }
@@ -81,40 +106,41 @@ enum MessageCommand
         text: String,
         inner_message: Option<CtcpMessage>,
         inner_text: String,
-        inner_params: Vec<String>
+        inner_params: Vec<String>,
     },
     NONHANDLED,
     EMPTY,
 }
 #[derive(Debug)]
-enum CtcpMessage {
+enum CtcpMessage
+{
     ACTION
     {
-        text: String
+        text: String,
     },
     CLIENTINFO
     {
-        token: String
+        token: String,
     },
     DCC
     {
         queryType: DCCQueryType,
         argument: String,
         address: String,
-        port: String
+        port: String,
     },
-    PING 
+    PING
     {
-        token: String
+        token: String,
     },
-    UNHANDLED
+    UNHANDLED,
 }
 #[derive(Debug)]
 enum DCCQueryType
 {
     SEND,
     CHAT,
-    UNHANDLED
+    UNHANDLED,
 }
 #[derive(Debug)]
 struct IrcMessage
@@ -170,13 +196,20 @@ fn parse_message(message: &String) -> Result<IrcMessage, &'static str>
         }
         "privmsg" if params.get(1).unwrap().to_string().starts_with("\u{1}") == true =>
         {
-            let inner_text =  params.get(1).unwrap().trim_start_matches("\u{1}").trim_end_matches("\u{1}").to_string();
-            let inner_text_split: Vec<String> = inner_text.split(" ").map(|x|{x.to_string()}).collect();
+            let inner_text = params
+                .get(1)
+                .unwrap()
+                .trim_start_matches("\u{1}")
+                .trim_end_matches("\u{1}")
+                .to_string();
+            let inner_text_split: Vec<String> =
+                inner_text.split(" ").map(|x| x.to_string()).collect();
             // println!("#### INNER_TEXT_SPLIT {:#?}",inner_text_split);
             MessageCommand::PRIVMSGCTCP {
                 message_target: params.get(0).unwrap().to_string(),
                 text: params.get(1).unwrap().to_string(),
-                inner_message: match inner_text_split[0].to_lowercase().as_str(){
+                inner_message: match inner_text_split[0].to_lowercase().as_str()
+                {
                     //#### INNER_TEXT_SPLIT [
                     //    "DCC",
                     //    "CHAT",
@@ -184,19 +217,20 @@ fn parse_message(message: &String) -> Result<IrcMessage, &'static str>
                     //    "413319771",
                     //    "1023",
                     //]
-                    "dcc" => Some(CtcpMessage::DCC{
-                        queryType: match inner_text_split[1].to_lowercase().as_str(){
+                    "dcc" => Some(CtcpMessage::DCC {
+                        queryType: match inner_text_split[1].to_lowercase().as_str()
+                        {
                             "send" => DCCQueryType::SEND,
                             "chat" => DCCQueryType::CHAT,
-                            _ => DCCQueryType::UNHANDLED
+                            _ => DCCQueryType::UNHANDLED,
                         },
                         argument: inner_text_split[2].to_string(),
                         address: inner_text_split[3].to_string(),
                         port: inner_text_split[4].to_string(),
                     }),
-                    _ => Some(CtcpMessage::UNHANDLED)
+                    _ => Some(CtcpMessage::UNHANDLED),
                 },
-                inner_text ,
+                inner_text,
                 inner_params: inner_text_split,
             }
         }
