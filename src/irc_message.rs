@@ -153,6 +153,67 @@ pub enum CtcpMessage
     },
     UNHANDLED,
 }
+
+impl CtcpMessage
+{
+    /// Returns `true` if the ctcp message is [`DCC`].
+    ///
+    /// [`DCC`]: CtcpMessage::DCC
+    pub fn is_dcc(&self) -> bool
+    {
+        matches!(self, Self::DCC { .. })
+    }
+    pub fn get_full_address(&self) -> Result<String, &'static str>
+    {
+        if let CtcpMessage::DCC {
+            queryType,
+            argument,
+            address,
+            port,
+        } = &self
+        {
+            Ok(CtcpMessage::get_full_address_from_strings(address.to_string(),port.to_string()).unwrap().to_string())
+        }
+        else
+        {
+            return Err("Unable to get full_address of non DCC CtcpMessage");
+        }
+    }
+    pub fn get_full_address_from_strings(
+        address: String,
+        port: String,
+    ) -> Result<String, &'static str>
+    {
+        let converted_ip = CtcpMessage::convert_ip(address.to_string()).unwrap();
+        let mut ret_val = String::new();
+        ret_val.push_str(converted_ip.as_str());
+        ret_val.push_str(":");
+        ret_val.push_str(port.as_str());
+        return Ok(ret_val);
+    }
+    fn convert_ip(start: String) -> Result<String, &'static str>
+    {
+        let int_val = {
+            let this = start.parse::<i32>();
+            match this
+            {
+                Ok(t) => t,
+                Err(_e) => return Err("Unexpected value in convert_ip"),
+            }
+        };
+        let y = int_val.to_be_bytes();
+        let mut ret_val = String::new();
+        ret_val.push_str(y[0].to_string().as_str());
+        ret_val.push_str(".");
+        ret_val.push_str(y[1].to_string().as_str());
+        ret_val.push_str(".");
+        ret_val.push_str(y[2].to_string().as_str());
+        ret_val.push_str(".");
+        ret_val.push_str(y[3].to_string().as_str());
+        Ok(ret_val.to_string())
+    }
+}
+
 #[derive(Debug)]
 pub enum DCCQueryType
 {
