@@ -1,21 +1,15 @@
+use irc_connection::*;
+use irc_message::*;
+use message_prefix::*;
 use std::io::prelude::*;
 use std::io::{stdin, BufReader};
 use std::net::TcpStream;
 use std::sync::mpsc;
 use std::thread;
-use message_prefix::*;
-use irc_message::*;
 
-mod message_prefix;
+mod irc_connection;
 mod irc_message;
-
-enum ConnectionStatus
-{
-    Disconnected,
-    Connected,
-    WaitingForResults,
-    WaitingForBook,
-}
+mod message_prefix;
 
 fn main()
 {
@@ -49,7 +43,57 @@ fn main()
         .expect("Unable to send message");
     //wait to receive DCC Send request for packlist
     let dcc_send_request = rx.recv().unwrap();
-    println!("Send request received {:#?} ", dcc_send_request)
+    let dcc_connex = DccConnection::connect(dcc_send_request).unwrap();
+    println!("{:#?}", dcc_connex)
+    
+
+    //Respond to DCC request and read all
+}
+
+#[derive(Debug)]
+pub struct DccConnection
+{
+    pub sock: TcpStream,
+    pub reader: BufReader<TcpStream>,
+}
+
+impl DccConnection
+{
+    pub fn connect_raw(ip_address: &str) -> Result<DccConnection, &'static str>
+    {
+        println!("Attempting to connect to: {}", ip_address);
+        let sock = TcpStream::connect(ip_address).unwrap();
+        let reader = BufReader::new(sock.try_clone().unwrap());
+
+        Ok(DccConnection { sock, reader })
+    }
+    pub fn connect(msg: IrcMessage) -> Result<DccConnection, &'static str>
+    {
+        match msg.command{
+            MessageCommand::PRIVMSGCTCP { message_target: _, text: _, inner_message, inner_text: _, inner_params: _ } => match inner_message {
+                Some(x) => match x{
+                    CtcpMessage::DCC { queryType, argument: _, address, port } => match queryType{
+                        DCCQueryType::SEND => {
+                            
+                            // let full_address = x.get_full_address().unwrap();
+                            let full_address = CtcpMessage::get_full_address_from_strings(address,port).unwrap();
+                            return DccConnection::connect_raw(full_address.as_str());
+                        },
+                        _ => Err("CTCP message was found, and it was a DCC request, but it was not a DCC Send")
+                    },
+                    _ => Err("CTCP message was found, but was not a DCC request")
+                },
+                None => Err("IrcMessage was a CTCP message, but it did not contain an innermessage"),
+            },
+            _ => Err("Non CTCP message")
+        }
+    }
+    pub fn get_all_bytes(&mut self) -> Vec<u8>
+    {
+        let mut buf: Vec<u8> = Vec::new();
+        self.reader.read_to_end(&mut buf).unwrap();
+        return buf;
+    }
 }
 
 fn read_loop(mut connex: IrcConnection, tx: std::sync::mpsc::Sender<IrcMessage>) -> !
@@ -106,74 +150,3 @@ fn read_loop(mut connex: IrcConnection, tx: std::sync::mpsc::Sender<IrcMessage>)
     }
 }
 
-
-struct IrcConnection
-{
-    sock: TcpStream,
-    status: ConnectionStatus,
-}
-impl IrcConnection
-{
-    fn connect(ip_address: &str) -> Result<IrcConnection, &'static str>
-    {
-        let sock = TcpStream::connect(ip_address);
-        match sock
-        {
-            Ok(v) => Ok(IrcConnection {
-                sock: v,
-                status: ConnectionStatus::Connected,
-            }),
-            Err(_e) => panic!("Unable to connect to server."),
-        }
-    }
-    fn get_reader(&self) -> BufReader<TcpStream>
-    {
-        BufReader::new(self.sock.try_clone().unwrap())
-    }
-    fn new_from_stream(sock: &TcpStream) -> Result<IrcConnection, &'static str>
-    {
-        Ok(IrcConnection {
-            sock: sock.try_clone().unwrap(),
-            status: ConnectionStatus::Connected,
-        })
-    }
-    fn send_bytes(&mut self, bytes: &[u8]) -> Result<usize, &'static str>
-    {
-        let written_byte_size = self.sock.write(bytes);
-        match written_byte_size
-        {
-            Ok(v) => return Ok(v),
-            Err(_e) => return Err("Unable to send data on TCP socket"),
-        }
-    }
-    fn send_command(&mut self, command: &str) -> Result<usize, &'static str>
-    {
-        self.send_string(command)
-    }
-    fn send_command_args(&mut self, command: &str, arguments: &str) -> Result<usize, &'static str>
-    {
-        let message = format!("{} {}\n", command, arguments);
-        return self.send_string(&message);
-    }
-    fn send_command_multiple_args(
-        &mut self,
-        command: &str,
-        arguments: Vec<&str>,
-    ) -> Result<usize, &'static str>
-    {
-        return self.send_command_args(command, arguments.join("").as_str());
-    }
-    fn send_message(&mut self, channel: &str, message: &str) -> Result<usize, &'static str>
-    {
-        self.send_command_multiple_args("PRIVMSG", vec![channel, " :", message])
-    }
-    fn send_string(&mut self, message: &str) -> Result<usize, &'static str>
-    {
-        println!("Sending: {}", message);
-        self.send_bytes(message.as_bytes())
-    }
-    fn try_clone(&self) -> std::io::Result<IrcConnection>
-    {
-        Ok(IrcConnection::new_from_stream(&self.sock.try_clone().unwrap()).unwrap())
-    }
-}
