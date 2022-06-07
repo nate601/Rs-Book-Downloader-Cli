@@ -184,9 +184,12 @@ impl CtcpMessage
         port: String,
     ) -> Result<String, &'static str>
     {
+        //TODO: remove these lines before connecting to non-test or non-local devices
+
         let converted_ip = CtcpMessage::convert_ip(address.to_string()).unwrap();
         let mut ret_val = String::new();
-        ret_val.push_str(converted_ip.as_str());
+        // ret_val.push_str(converted_ip.as_str());
+        ret_val.push_str("192.168.1.30");
         ret_val.push_str(":");
         ret_val.push_str(port.as_str());
         return Ok(ret_val);
