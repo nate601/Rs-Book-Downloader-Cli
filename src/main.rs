@@ -42,12 +42,28 @@ fn main()
         .send_message("#bookz", &name)
         .expect("Unable to send message");
     //wait to receive DCC Send request for packlist
-    let dcc_send_request = rx.recv().unwrap();
-    let dcc_connex = DccConnection::connect(dcc_send_request).unwrap();
-    println!("{:#?}", dcc_connex)
-    
+    let dcc_send_request = loop {
 
+        let dcc_send_request = rx.recv().unwrap();
+        let sender = match dcc_send_request.prefix.as_ref().unwrap(){
+            MessagePrefix::User { nickname, username: _, host: _ } => nickname,
+            MessagePrefix::Server { servername } => servername,
+        };
+        println!("DCC SEND Request from {}. (y) to accept", sender);
+        let mut buf = String::new();
+        stdin().read_line(&mut buf).unwrap();
+        if buf.starts_with("y")
+        {
+            break dcc_send_request;
+        }
+    };
+    let mut dcc_connex = DccConnection::connect(dcc_send_request).unwrap();
     //Respond to DCC request and read all
+    let file = dcc_connex.get_all_bytes();
+    
+    println!("{:#?} ", file);
+
+
 }
 
 #[derive(Debug)]
