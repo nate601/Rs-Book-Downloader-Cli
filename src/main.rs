@@ -63,6 +63,20 @@ fn main()
     
     println!("{:#?} ", file);
 
+    //TODO:verify file we received was pkzip file
+
+    //TODO:unzip file received thru DCC request
+
+    //TODO: parse the txt file from Searchbot
+    
+    //TODO:Present in a table the choices to the user
+
+    //TODO:Once user has selected choice, send a new message in the IRC channel
+
+    //TODO:wait for DCC request then save file
+    
+    
+
 
 }
 
