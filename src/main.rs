@@ -2,7 +2,7 @@ use irc_connection::*;
 use irc_message::*;
 use message_prefix::*;
 use std::io::prelude::*;
-use std::io::{stdin, BufReader};
+use std::io::{stdin, BufReader, Cursor};
 use std::net::TcpStream;
 use std::sync::mpsc;
 use std::thread;
@@ -45,13 +45,24 @@ fn main()
     let dcc_send_request = receive_new_dcc(&rx);
     let mut dcc_connex = DccConnection::connect(dcc_send_request).unwrap();
     //Respond to DCC request and read all
-    let file = dcc_connex.get_all_bytes();
+    let zipped_results_file_bytes = dcc_connex.get_all_bytes();
     
-    println!("{:#?} ", file);
+    println!("{:#?} ", zipped_results_file_bytes);
 
     //TODO:verify file we received was pkzip file
+    if file_is_pkzip(&zipped_results_file_bytes)
+    {
+        println!("File is PKZIP!");
+    }
+    else
+    {
+        panic!("Non PKZIP file sent when expected PKZIP {:#?}", zipped_results_file_bytes)
+    }
+
 
     //TODO:unzip file received thru DCC request
+    PkZip::new(&zipped_results_file_bytes);
+
 
     //TODO: parse the txt file from Searchbot
     
@@ -64,6 +75,123 @@ fn main()
     
 
 
+}
+
+#[derive(Debug)]
+struct PkZip {
+    local_file_headers: Vec<LocalFileHeader>,
+    central_directory_header: Vec<CentralDirectoryHeader>,
+    end_of_central_directory_record: EndOfCentralDirectoryRecord,
+    file_bytes: Vec<u8>
+}
+
+impl PkZip {
+    fn new(file_bytes: &[u8]) -> Self {
+        let pkzip_magic_numbers : &[u8] = &[0x50, 0x4b, 0x03, 0x04];
+        let pkzip_central_file_header_signature : &[u8] = &[0x50, 0x4b, 0x01, 0x02];
+        let pkzip_end_of_central_directory_signature : &[u8] = &[0x50, 0x4b, 0x05, 0x06];
+
+        let mut cursor = Cursor::new(file_bytes);
+        // file_bytes.iter().position()
+        //
+        //
+
+        //Find and seek to ECDR Signature
+        let position_of_ecdr = file_bytes.windows(pkzip_end_of_central_directory_signature.len()).position(|x| x == pkzip_end_of_central_directory_signature).unwrap() as u64;
+        println!("posiiton of ECDR sig {:#?}", position_of_ecdr);
+        cursor.seek(std::io::SeekFrom::Start(position_of_ecdr)).unwrap();
+        cursor.seek(std::io::SeekFrom::Current(4)).unwrap();
+        let number_of_this_disk: &mut [u8;2] = &mut [0;2];
+        let number_of_disk_with_start_of_central_directory: &mut [u8;2] = &mut [0;2];
+        let total_number_of_entries_in_central_directory_on_current_disk: &mut [u8;2] = &mut [0;2];
+        let total_number_of_entries_in_central_directory: &mut [u8;2] = &mut [0;2];
+        let size_of_central_directory: &mut [u8;4] = &mut [0;4];
+        let offset_of_start_of_central_directory_with_respect_to_starting_disk_number: &mut [u8;4] = &mut [0;4];
+        let zip_file_comment_length: &mut [u8;2] = &mut [0;2];
+
+        cursor.read_exact(number_of_this_disk).unwrap();
+        cursor.read_exact(number_of_disk_with_start_of_central_directory).unwrap();
+        cursor.read_exact(total_number_of_entries_in_central_directory_on_current_disk).unwrap();
+        cursor.read_exact(total_number_of_entries_in_central_directory).unwrap();
+        cursor.read_exact(size_of_central_directory).unwrap();
+        cursor.read_exact(offset_of_start_of_central_directory_with_respect_to_starting_disk_number).unwrap();
+        cursor.read_exact(zip_file_comment_length).unwrap();
+        // Variable size
+        // let zip_file_comment = Vec::with_capacity(u16::from_be_bytes(zip_file_comment_length.try_into().unwrap()) as usize);
+        let zip_file_comment_length_value = u16::from_be_bytes(*zip_file_comment_length) as usize;
+        let zip_file_comment = &mut Vec::with_capacity(zip_file_comment_length_value);
+        cursor.read_exact(zip_file_comment).unwrap();
+
+        let ECDR = EndOfCentralDirectoryRecord{
+
+            number_of_this_disk: *number_of_this_disk,
+            number_of_disk_with_start_of_central_directory: *number_of_disk_with_start_of_central_directory,
+            total_number_of_entries_in_central_directory_on_current_disk: *total_number_of_entries_in_central_directory_on_current_disk,
+            total_number_of_entries_in_central_directory: *total_number_of_entries_in_central_directory,
+            size_of_central_directory: *size_of_central_directory,
+            offset_of_start_of_central_directory_with_respect_to_starting_disk_number: *offset_of_start_of_central_directory_with_respect_to_starting_disk_number,
+            zip_file_comment_length:*zip_file_comment_length,
+            // Variable size
+            zip_file_comment: zip_file_comment.to_vec()
+        };
+        println!("ECDR Parsed: {:#?}", ECDR);
+        //Fill ECDR
+        //Ensure there is only one file
+        //Find and seek central directory records
+        //Fill CDH
+        //Go to file headers
+        //Fill file headers
+        //return struct
+
+        todo!()
+    }
+
+}
+#[derive(Debug)]
+struct LocalFileHeader {
+
+}
+#[derive(Debug)]
+struct CentralDirectoryHeader{
+    version_maker :[u8;2],
+    version_needed_to_extract: [u8;2],
+    general_purpose_bit_flag : [u8;2],
+    compression_method: [u8;2],
+    last_mod_file_time: [u8;2],
+    last_mod_file_date: [u8;2],
+    crc_32: [u8;4],
+    compressed_size: [u8;4],
+    uncompressed_size: [u8;4],
+    file_name_length: [u8;2],
+    extra_field_length:[u8;2],
+    file_comment_length:[u8;2],
+    disk_number_start:[u8;2],
+    internal_file_attributes:[u8;2],
+    external_file_attributes:[u8;4],
+    relative_offset_of_local_header:[u8;4],
+    // Variable size
+    file_name: Vec<u8>,
+    extra_field: Vec<u8>,
+    file_comment: Vec<u8>,
+}
+#[derive(Debug)]
+struct EndOfCentralDirectoryRecord {
+    number_of_this_disk: [u8;2],
+    number_of_disk_with_start_of_central_directory: [u8;2],
+    total_number_of_entries_in_central_directory_on_current_disk: [u8;2],
+    total_number_of_entries_in_central_directory: [u8;2],
+    size_of_central_directory: [u8;4],
+    offset_of_start_of_central_directory_with_respect_to_starting_disk_number: [u8;4],
+    zip_file_comment_length: [u8;2],
+    // Variable size
+    zip_file_comment: Vec<u8>
+}
+
+
+fn file_is_pkzip(file: &[u8]) -> bool
+{
+    let pkzip_magic_numbers : &[u8] = &[0x50, 0x4b, 0x03, 0x04];
+    file.starts_with(pkzip_magic_numbers)
 }
 
 fn receive_new_dcc(read_loop_receiver: &mpsc::Receiver<IrcMessage>) -> IrcMessage {
