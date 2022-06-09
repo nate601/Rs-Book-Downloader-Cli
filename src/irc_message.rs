@@ -52,7 +52,7 @@ impl IrcMessage
             "privmsg" if params.get(1).unwrap().to_string().starts_with("\u{1}") == false =>
             {
                 MessageCommand::PRIVMSG {
-                    messageTarget: params.get(0).unwrap().to_string(),
+                    message_target: params.get(0).unwrap().to_string(),
                     text: params.get(1).unwrap().to_string(),
                 }
             }
@@ -80,7 +80,7 @@ impl IrcMessage
                         //    "1023",
                         //]
                         "dcc" => Some(CtcpMessage::DCC {
-                            queryType: match inner_text_split[1].to_lowercase().as_str()
+                            query_type: match inner_text_split[1].to_lowercase().as_str()
                             {
                                 "send" => DCCQueryType::SEND,
                                 "chat" => DCCQueryType::CHAT,
@@ -115,7 +115,7 @@ pub enum MessageCommand
     },
     PRIVMSG
     {
-        messageTarget: String,
+        message_target: String,
         text: String,
     },
     PRIVMSGCTCP
@@ -142,7 +142,7 @@ pub enum CtcpMessage
     },
     DCC
     {
-        queryType: DCCQueryType,
+        query_type: DCCQueryType,
         argument: String,
         address: String,
         port: String,
@@ -166,7 +166,7 @@ impl CtcpMessage
     pub fn get_full_address(&self) -> Result<String, &'static str>
     {
         if let CtcpMessage::DCC {
-            queryType,
+            query_type,
             argument,
             address,
             port,

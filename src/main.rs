@@ -42,21 +42,7 @@ fn main()
         .send_message("#bookz", &name)
         .expect("Unable to send message");
     //wait to receive DCC Send request for packlist
-    let dcc_send_request = loop {
-
-        let dcc_send_request = rx.recv().unwrap();
-        let sender = match dcc_send_request.prefix.as_ref().unwrap(){
-            MessagePrefix::User { nickname, username: _, host: _ } => nickname,
-            MessagePrefix::Server { servername } => servername,
-        };
-        println!("DCC SEND Request from {}. (y) to accept", sender);
-        let mut buf = String::new();
-        stdin().read_line(&mut buf).unwrap();
-        if buf.starts_with("y")
-        {
-            break dcc_send_request;
-        }
-    };
+    let dcc_send_request = receive_new_dcc(&rx);
     let mut dcc_connex = DccConnection::connect(dcc_send_request).unwrap();
     //Respond to DCC request and read all
     let file = dcc_connex.get_all_bytes();
@@ -78,6 +64,25 @@ fn main()
     
 
 
+}
+
+fn receive_new_dcc(read_loop_receiver: &mpsc::Receiver<IrcMessage>) -> IrcMessage {
+    let dcc_send_request = loop {
+
+        let dcc_send_request = read_loop_receiver.recv().unwrap();
+        let sender = match dcc_send_request.prefix.as_ref().unwrap(){
+            MessagePrefix::User { nickname, username: _, host: _ } => nickname,
+            MessagePrefix::Server { servername } => servername,
+        };
+        println!("DCC SEND Request from {}. (y) to accept", sender);
+        let mut buf = String::new();
+        stdin().read_line(&mut buf).unwrap();
+        if buf.starts_with('y')
+        {
+            break dcc_send_request;
+        }
+    };
+    dcc_send_request
 }
 
 #[derive(Debug)]
@@ -102,7 +107,7 @@ impl DccConnection
         match msg.command{
             MessageCommand::PRIVMSGCTCP { message_target: _, text: _, inner_message, inner_text: _, inner_params: _ } => match inner_message {
                 Some(x) => match x{
-                    CtcpMessage::DCC { queryType, argument: _, address, port } => match queryType{
+                    CtcpMessage::DCC { query_type, argument: _, address, port } => match query_type{
                         DCCQueryType::SEND => {
                             
                             // let full_address = x.get_full_address().unwrap();
@@ -122,7 +127,7 @@ impl DccConnection
     {
         let mut buf: Vec<u8> = Vec::new();
         self.reader.read_to_end(&mut buf).unwrap();
-        return buf;
+        buf
     }
 }
 
@@ -150,26 +155,23 @@ fn read_loop(mut connex: IrcConnection, tx: std::sync::mpsc::Sender<IrcMessage>)
                 inner_message,
                 inner_text: _,
                 inner_params: _,
-            } => match inner_message.unwrap()
+            } => if let CtcpMessage::DCC {
+                                query_type,
+                                argument,
+                                address,
+                                port,
+                            } = inner_message.unwrap() {
+                match query_type
             {
-                CtcpMessage::DCC {
-                    queryType,
-                    argument,
-                    address,
-                    port,
-                } => match queryType
+                DCCQueryType::SEND =>
                 {
-                    DCCQueryType::SEND =>
-                    {
-                        println!("New file: {} on {}:{}", argument, address, port);
-                        tx.send(IrcMessage::parse_message(&buf).unwrap()).unwrap();
-                    }
-                    DCCQueryType::CHAT => println!("Attempted chat {}:{}", address, port),
-                    _ =>
-                    {}
-                },
+                    println!("New file: {} on {}:{}", argument, address, port);
+                    tx.send(IrcMessage::parse_message(&buf).unwrap()).unwrap();
+                }
+                DCCQueryType::CHAT => println!("Attempted chat {}:{}", address, port),
                 _ =>
                 {}
+            }
             },
             MessageCommand::NONHANDLED =>
             {}
