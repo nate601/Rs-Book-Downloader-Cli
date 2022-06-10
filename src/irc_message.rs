@@ -172,7 +172,11 @@ impl CtcpMessage
             port,
         } = &self
         {
-            Ok(CtcpMessage::get_full_address_from_strings(address.to_string(),port.to_string()).unwrap().to_string())
+            Ok(
+                CtcpMessage::get_full_address_from_strings(address.to_string(), port.to_string())
+                    .unwrap()
+                    .to_string(),
+            )
         }
         else
         {

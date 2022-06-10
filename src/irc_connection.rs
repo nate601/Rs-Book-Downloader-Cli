@@ -53,7 +53,11 @@ impl IrcConnection
     {
         self.send_string(command)
     }
-    pub fn send_command_args(&mut self, command: &str, arguments: &str) -> Result<usize, &'static str>
+    pub fn send_command_args(
+        &mut self,
+        command: &str,
+        arguments: &str,
+    ) -> Result<usize, &'static str>
     {
         let message = format!("{} {}\n", command, arguments);
         return self.send_string(&message);
