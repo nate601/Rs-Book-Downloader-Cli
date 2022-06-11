@@ -63,7 +63,9 @@ fn main()
     }
 
     //:unzip file received thru DCC request
-    let file = PkZip::new(&zipped_results_file_bytes);
+    let pkzip_file = PkZip::new(&zipped_results_file_bytes);
+    let pkzip_files = PkZipFile::generate_from_pkzip(&pkzip_file);
+    println!("pkzip files {:#?}", pkzip_files);
 
     //: parse the txt file from Searchbot
 
@@ -165,6 +167,7 @@ impl PkZip
             .unwrap();
         for _i in 0..u16::from_le_bytes(*total_number_of_entries_in_central_directory)
         {
+            let start_posistion = cursor.position();
             let buf: &mut [u8; 4] = &mut [0; 4];
             cursor.read_exact(buf).unwrap();
             assert!(buf == pkzip_central_file_header_signature);
@@ -219,8 +222,10 @@ impl PkZip
             cursor.read_exact(file_name).unwrap();
             cursor.read_exact(extra_field).unwrap();
             cursor.read_exact(file_comment).unwrap();
+            let end_position = cursor.position();
             //Fill CDH
             let header = CentralDirectoryHeader {
+                start_position: start_posistion,
                 version_maker: *version_maker,
                 version_needed_to_extract: *version_needed_to_extract,
                 general_purpose_bit_flag: *general_purpose_bit_flag,
@@ -242,6 +247,7 @@ impl PkZip
                 file_name: file_name.to_vec(),
                 extra_field: extra_field.to_vec(),
                 file_comment: file_comment.to_vec(),
+                end_position,
             };
             central_directory_header.push(header);
         }
@@ -289,8 +295,10 @@ impl PkZip
             let extra_field: &mut Vec<u8> = &mut Vec::with_capacity(extra_field_length_val);
             extra_field.resize(extra_field_length_val, 0);
             cursor.read_exact(extra_field).unwrap();
+            let end_position = cursor.position();
 
             let header = LocalFileHeader {
+                start_position: offset,
                 version_needed_to_extract: *version_needed_to_extract,
                 general_purpose_bit_flag: *general_purpose_bit_flag,
                 compression_method: *compression_method,
@@ -303,6 +311,7 @@ impl PkZip
                 extra_field_length: *extra_field_length,
                 file_name: file_name.to_vec(),
                 extra_field: extra_field.to_vec(),
+                end_position,
             };
 
             local_file_headers.push(header);
@@ -319,8 +328,65 @@ impl PkZip
     }
 }
 #[derive(Debug, Clone)]
+struct PkZipFile
+{
+    file_name: String,
+    compressed_size: u32,
+    compression_method: u16,
+    uncompressed_size: u32,
+    crc_32: u32,
+    compressed_data: Vec<u8>,
+}
+
+impl PkZipFile
+{
+    fn new(
+        file_name: String,
+        compressed_size: u32,
+        compression_method: u16,
+        uncompressed_size: u32,
+        crc_32: u32,
+        compressed_data: Vec<u8>,
+    ) -> Self
+    {
+        Self {
+            file_name,
+            compressed_size,
+            compression_method,
+            uncompressed_size,
+            crc_32,
+            compressed_data,
+        }
+    }
+
+    fn generate_from_pkzip(pkzip: &PkZip) -> Vec<Self>
+    {
+        let ret_val: &mut Vec<Self> = &mut Vec::new();
+        let cursor = &mut Cursor::new(&pkzip.file_bytes);
+        for (cdh, lfh) in pkzip.central_directory_headers.iter().zip(pkzip.local_file_headers.to_vec())
+        {
+            cursor.seek(std::io::SeekFrom::Start(lfh.end_position)).unwrap();
+            let compressed_size = &mut u32::from_le_bytes(cdh.compressed_size);
+            let buf: &mut Vec<u8> = &mut Vec::with_capacity(*compressed_size as usize);
+            buf.resize(*compressed_size as usize, 0u8);
+            cursor.read_exact(buf).unwrap();
+            let k = Self {
+                file_name: String::from_utf8(cdh.file_name.to_vec()).unwrap(),
+                compressed_size: *compressed_size,
+                compression_method: u16::from_le_bytes(cdh.compression_method),
+                uncompressed_size: u32::from_le_bytes(cdh.uncompressed_size),
+                crc_32: u32::from_le_bytes(cdh.crc_32),
+                compressed_data: buf.to_vec(),
+            };
+            ret_val.push(k);
+        }
+        ret_val.to_vec()
+    }
+}
+#[derive(Debug, Clone)]
 struct LocalFileHeader
 {
+    start_position: u64,
     version_needed_to_extract: [u8; 2],
     general_purpose_bit_flag: [u8; 2],
     compression_method: [u8; 2],
@@ -334,10 +400,12 @@ struct LocalFileHeader
     //Variable size
     file_name: Vec<u8>,
     extra_field: Vec<u8>,
+    end_position: u64,
 }
 #[derive(Debug, Clone)]
 struct CentralDirectoryHeader
 {
+    start_position: u64,
     version_maker: [u8; 2],
     version_needed_to_extract: [u8; 2],
     general_purpose_bit_flag: [u8; 2],
@@ -358,6 +426,7 @@ struct CentralDirectoryHeader
     file_name: Vec<u8>,
     extra_field: Vec<u8>,
     file_comment: Vec<u8>,
+    end_position: u64,
 }
 #[derive(Debug)]
 struct EndOfCentralDirectoryRecord
