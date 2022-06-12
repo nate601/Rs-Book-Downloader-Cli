@@ -1,0 +1,375 @@
+use std::io::Seek;
+use std::io::Cursor;
+use std::io::prelude::*;
+
+#[derive(Debug)]
+pub struct PkZip
+{
+    pub local_file_headers: Vec<LocalFileHeader>,
+    pub central_directory_headers: Vec<CentralDirectoryHeader>,
+    pub end_of_central_directory_record: EndOfCentralDirectoryRecord,
+    pub file_bytes: Vec<u8>,
+}
+
+impl PkZip
+{
+    pub fn data_is_pkzip(file: &[u8]) -> bool
+    {
+        let pkzip_magic_numbers: &[u8] = &[0x50, 0x4b, 0x03, 0x04];
+        file.starts_with(pkzip_magic_numbers)
+    }
+    pub fn get_files(&self) -> Vec<PkZipFile>
+    {
+        let ret_val: &mut Vec<PkZipFile> = &mut Vec::new();
+        let cursor = &mut Cursor::new(&self.file_bytes);
+        for (cdh, lfh) in self.central_directory_headers.iter().zip(self.local_file_headers.to_vec())
+        {
+            cursor.seek(std::io::SeekFrom::Start(lfh.end_position)).unwrap();
+            let compressed_size = &mut u32::from_le_bytes(cdh.compressed_size);
+            let buf: &mut Vec<u8> = &mut Vec::with_capacity(*compressed_size as usize);
+            buf.resize(*compressed_size as usize, 0u8);
+            cursor.read_exact(buf).unwrap();
+            let k = PkZipFile {
+                file_name: String::from_utf8(cdh.file_name.to_vec()).unwrap(),
+                compressed_size: *compressed_size,
+                compression_method: u16::from_le_bytes(cdh.compression_method),
+                uncompressed_size: u32::from_le_bytes(cdh.uncompressed_size),
+                crc_32: u32::from_le_bytes(cdh.crc_32),
+                compressed_data: buf.to_vec(),
+            };
+            ret_val.push(k);
+        }
+        ret_val.to_vec()
+    }
+    pub fn new(file_bytes: &[u8]) -> Self
+    {
+
+        let pkzip_magic_numbers: &[u8] = &[0x50, 0x4b, 0x03, 0x04];
+        let pkzip_central_file_header_signature: &[u8] = &[0x50, 0x4b, 0x01, 0x02];
+        let pkzip_end_of_central_directory_signature: &[u8] = &[0x50, 0x4b, 0x05, 0x06];
+        let pkzip_local_file_header_signature: &[u8] = &[0x50, 0x4b, 0x03, 0x04];
+
+        let mut cursor = Cursor::new(file_bytes);
+        // file_bytes.iter().position()
+        //
+        //
+
+        //Find and seek to ECDR Signature
+        let position_of_ecdr = file_bytes
+            .windows(pkzip_end_of_central_directory_signature.len())
+            .position(|x| x == pkzip_end_of_central_directory_signature)
+            .unwrap() as u64;
+        println!("posiiton of ECDR sig {:#?}", position_of_ecdr);
+        cursor
+            .seek(std::io::SeekFrom::Start(position_of_ecdr))
+            .unwrap();
+        cursor.seek(std::io::SeekFrom::Current(4)).unwrap();
+        let number_of_this_disk: &mut [u8; 2] = &mut [0; 2];
+        let number_of_disk_with_start_of_central_directory: &mut [u8; 2] = &mut [0; 2];
+        let total_number_of_entries_in_central_directory_on_current_disk: &mut [u8; 2] =
+            &mut [0; 2];
+        let total_number_of_entries_in_central_directory: &mut [u8; 2] = &mut [0; 2];
+        let size_of_central_directory: &mut [u8; 4] = &mut [0; 4];
+        let offset_of_start_of_central_directory_with_respect_to_starting_disk_number: &mut [u8;
+                 4] = &mut [0; 4];
+        let zip_file_comment_length: &mut [u8; 2] = &mut [0; 2];
+
+        cursor.read_exact(number_of_this_disk).unwrap();
+        cursor
+            .read_exact(number_of_disk_with_start_of_central_directory)
+            .unwrap();
+        cursor
+            .read_exact(total_number_of_entries_in_central_directory_on_current_disk)
+            .unwrap();
+        cursor
+            .read_exact(total_number_of_entries_in_central_directory)
+            .unwrap();
+        cursor.read_exact(size_of_central_directory).unwrap();
+        cursor
+            .read_exact(offset_of_start_of_central_directory_with_respect_to_starting_disk_number)
+            .unwrap();
+        cursor.read_exact(zip_file_comment_length).unwrap();
+        let zip_file_comment_length_value = u16::from_be_bytes(*zip_file_comment_length) as usize;
+        let zip_file_comment = &mut Vec::with_capacity(zip_file_comment_length_value);
+        zip_file_comment.resize(zip_file_comment_length_value, 0);
+        cursor.read_exact(zip_file_comment).unwrap();
+
+        //Fill ECDR
+        let end_of_central_directory_record = EndOfCentralDirectoryRecord {
+            number_of_this_disk: *number_of_this_disk,
+            number_of_disk_with_start_of_central_directory:
+                *number_of_disk_with_start_of_central_directory,
+            total_number_of_entries_in_central_directory_on_current_disk:
+                *total_number_of_entries_in_central_directory_on_current_disk,
+            total_number_of_entries_in_central_directory:
+                *total_number_of_entries_in_central_directory,
+            size_of_central_directory: *size_of_central_directory,
+            offset_of_start_of_central_directory_with_respect_to_starting_disk_number:
+                *offset_of_start_of_central_directory_with_respect_to_starting_disk_number,
+            zip_file_comment_length: *zip_file_comment_length,
+            // Variable size
+            zip_file_comment: zip_file_comment.to_vec(),
+        };
+        let central_directory_header: &mut Vec<CentralDirectoryHeader> = &mut Vec::with_capacity(
+            u16::from_be_bytes(*total_number_of_entries_in_central_directory) as usize,
+        );
+
+        //Find and seek central directory records
+        cursor
+            .seek(std::io::SeekFrom::Start(u32::from_le_bytes(
+                *offset_of_start_of_central_directory_with_respect_to_starting_disk_number,
+            ) as u64))
+            .unwrap();
+        for _i in 0..u16::from_le_bytes(*total_number_of_entries_in_central_directory)
+        {
+            let start_posistion = cursor.position();
+            let buf: &mut [u8; 4] = &mut [0; 4];
+            cursor.read_exact(buf).unwrap();
+            assert!(buf == pkzip_central_file_header_signature);
+
+            let version_maker: &mut [u8; 2] = &mut [0; 2];
+            let version_needed_to_extract: &mut [u8; 2] = &mut [0; 2];
+            let general_purpose_bit_flag: &mut [u8; 2] = &mut [0; 2];
+            let compression_method: &mut [u8; 2] = &mut [0; 2];
+            let last_mod_file_time: &mut [u8; 2] = &mut [0; 2];
+            let last_mod_file_date: &mut [u8; 2] = &mut [0; 2];
+            let crc_32: &mut [u8; 4] = &mut [0; 4];
+            let compressed_size: &mut [u8; 4] = &mut [0; 4];
+            let uncompressed_size: &mut [u8; 4] = &mut [0; 4];
+            let file_name_length: &mut [u8; 2] = &mut [0; 2];
+            let extra_field_length: &mut [u8; 2] = &mut [0; 2];
+            let file_comment_length: &mut [u8; 2] = &mut [0; 2];
+            let disk_number_start: &mut [u8; 2] = &mut [0; 2];
+            let internal_file_attributes: &mut [u8; 2] = &mut [0; 2];
+            let external_file_attributes: &mut [u8; 4] = &mut [0; 4];
+            let relative_offset_of_local_header: &mut [u8; 4] = &mut [0; 4];
+
+            cursor.read_exact(version_maker).unwrap();
+            cursor.read_exact(version_needed_to_extract).unwrap();
+            cursor.read_exact(general_purpose_bit_flag).unwrap();
+            cursor.read_exact(compression_method).unwrap();
+            cursor.read_exact(last_mod_file_time).unwrap();
+            cursor.read_exact(last_mod_file_date).unwrap();
+            cursor.read_exact(crc_32).unwrap();
+            cursor.read_exact(compressed_size).unwrap();
+            cursor.read_exact(uncompressed_size).unwrap();
+            cursor.read_exact(file_name_length).unwrap();
+            cursor.read_exact(extra_field_length).unwrap();
+            cursor.read_exact(file_comment_length).unwrap();
+            cursor.read_exact(disk_number_start).unwrap();
+            cursor.read_exact(internal_file_attributes).unwrap();
+            cursor.read_exact(external_file_attributes).unwrap();
+            cursor.read_exact(relative_offset_of_local_header).unwrap();
+
+            let file_name_length_val = u16::from_le_bytes(*file_name_length) as usize;
+            let file_name: &mut Vec<u8> =
+                &mut Vec::with_capacity(u16::from_le_bytes(*file_name_length) as usize);
+            file_name.resize(file_name_length_val, 0);
+
+            let extra_field_length_val = u16::from_le_bytes(*extra_field_length) as usize;
+            let extra_field: &mut Vec<u8> = &mut Vec::with_capacity(extra_field_length_val);
+            extra_field.resize(extra_field_length_val, 0);
+
+            let file_comment_length_val = u16::from_le_bytes(*file_comment_length) as usize;
+            let file_comment: &mut Vec<u8> = &mut Vec::with_capacity(file_comment_length_val);
+            file_comment.resize(file_comment_length_val, 0);
+
+            cursor.read_exact(file_name).unwrap();
+            cursor.read_exact(extra_field).unwrap();
+            cursor.read_exact(file_comment).unwrap();
+            let end_position = cursor.position();
+            //Fill CDH
+            let header = CentralDirectoryHeader {
+                start_position: start_posistion,
+                version_maker: *version_maker,
+                version_needed_to_extract: *version_needed_to_extract,
+                general_purpose_bit_flag: *general_purpose_bit_flag,
+                compression_method: *compression_method,
+                last_mod_file_time: *last_mod_file_time,
+                last_mod_file_date: *last_mod_file_date,
+                crc_32: *crc_32,
+                compressed_size: *compressed_size,
+                uncompressed_size: *uncompressed_size,
+                file_name_length: *file_name_length,
+                extra_field_length: *extra_field_length,
+                file_comment_length: *file_comment_length,
+                disk_number_start: *disk_number_start,
+                internal_file_attributes: *internal_file_attributes,
+                external_file_attributes: *external_file_attributes,
+                relative_offset_of_local_header: *relative_offset_of_local_header,
+
+                // Variable size
+                file_name: file_name.to_vec(),
+                extra_field: extra_field.to_vec(),
+                file_comment: file_comment.to_vec(),
+                end_position,
+            };
+            central_directory_header.push(header);
+        }
+        //Fill file headers
+        let local_file_headers: &mut Vec<LocalFileHeader> =
+            &mut Vec::with_capacity(central_directory_header.len());
+        for x in central_directory_header.to_vec()
+        {
+            let offset = u32::from_le_bytes(x.relative_offset_of_local_header) as u64;
+            cursor.seek(std::io::SeekFrom::Start(offset)).unwrap();
+
+            let version_needed_to_extract: &mut [u8; 2] = &mut [0; 2];
+            let general_purpose_bit_flag: &mut [u8; 2] = &mut [0; 2];
+            let compression_method: &mut [u8; 2] = &mut [0; 2];
+            let last_mod_file_time: &mut [u8; 2] = &mut [0; 2];
+            let last_mod_file_date: &mut [u8; 2] = &mut [0; 2];
+            let crc_32: &mut [u8; 4] = &mut [0; 4];
+            let compressed_size: &mut [u8; 4] = &mut [0; 4];
+            let uncompressed_size: &mut [u8; 4] = &mut [0; 4];
+            let file_name_length: &mut [u8; 2] = &mut [0; 2];
+            let extra_field_length: &mut [u8; 2] = &mut [0; 2];
+
+            let buf = &mut [0u8; 2];
+
+            cursor.read_exact(buf).unwrap();
+            cursor.read_exact(version_needed_to_extract).unwrap();
+            cursor.read_exact(general_purpose_bit_flag).unwrap();
+            cursor.read_exact(compression_method).unwrap();
+            cursor.read_exact(last_mod_file_time).unwrap();
+            cursor.read_exact(last_mod_file_date).unwrap();
+            cursor.read_exact(crc_32).unwrap();
+            cursor.read_exact(compressed_size).unwrap();
+            cursor.read_exact(uncompressed_size).unwrap();
+            cursor.read_exact(file_name_length).unwrap();
+            cursor.read_exact(extra_field_length).unwrap();
+
+            //Variable size
+            // let file_name: Vec<u8>,
+            let file_name_length_val = u16::from_le_bytes(*file_name_length) as usize;
+            let file_name: &mut Vec<u8> = &mut Vec::with_capacity(file_name_length_val);
+            file_name.resize(file_name_length_val, 0);
+            cursor.read_exact(file_name).unwrap();
+            // let extra_field: Vec<u8>,
+            let extra_field_length_val = u16::from_le_bytes(*extra_field_length) as usize;
+            let extra_field: &mut Vec<u8> = &mut Vec::with_capacity(extra_field_length_val);
+            extra_field.resize(extra_field_length_val, 0);
+            cursor.read_exact(extra_field).unwrap();
+            let end_position = cursor.position();
+
+            let header = LocalFileHeader {
+                start_position: offset,
+                version_needed_to_extract: *version_needed_to_extract,
+                general_purpose_bit_flag: *general_purpose_bit_flag,
+                compression_method: *compression_method,
+                last_mod_file_time: *last_mod_file_time,
+                last_mod_file_date: *last_mod_file_date,
+                crc_32: *crc_32,
+                compressed_size: *compressed_size,
+                uncompressed_size: *uncompressed_size,
+                file_name_length: *file_name_length,
+                extra_field_length: *extra_field_length,
+                file_name: file_name.to_vec(),
+                extra_field: extra_field.to_vec(),
+                end_position,
+            };
+
+            local_file_headers.push(header);
+        }
+
+        //combine and return struct
+
+        PkZip {
+            local_file_headers: local_file_headers.to_vec(),
+            central_directory_headers: central_directory_header.to_vec(),
+            end_of_central_directory_record,
+            file_bytes: file_bytes.to_vec(),
+        }
+    }
+}
+#[derive(Debug, Clone)]
+pub struct PkZipFile
+{
+    pub file_name: String,
+    pub compressed_size: u32,
+    pub compression_method: u16,
+    pub uncompressed_size: u32,
+    pub crc_32: u32,
+    pub compressed_data: Vec<u8>,
+}
+
+impl PkZipFile
+{
+    pub fn new(
+        file_name: String,
+        compressed_size: u32,
+        compression_method: u16,
+        uncompressed_size: u32,
+        crc_32: u32,
+        compressed_data: Vec<u8>,
+    ) -> Self
+    {
+        Self {
+            file_name,
+            compressed_size,
+            compression_method,
+            uncompressed_size,
+            crc_32,
+            compressed_data,
+        }
+    }
+
+}
+#[derive(Debug, Clone)]
+pub struct LocalFileHeader
+{
+    pub start_position: u64,
+    pub version_needed_to_extract: [u8; 2],
+    pub general_purpose_bit_flag: [u8; 2],
+    pub compression_method: [u8; 2],
+    pub last_mod_file_time: [u8; 2],
+    pub last_mod_file_date: [u8; 2],
+    pub crc_32: [u8; 4],
+    pub compressed_size: [u8; 4],
+    pub uncompressed_size: [u8; 4],
+    pub file_name_length: [u8; 2],
+    pub extra_field_length: [u8; 2],
+    //Variable size
+    pub file_name: Vec<u8>,
+    pub extra_field: Vec<u8>,
+    pub end_position: u64,
+}
+#[derive(Debug, Clone)]
+pub struct CentralDirectoryHeader
+{
+    pub start_position: u64,
+    pub version_maker: [u8; 2],
+    pub version_needed_to_extract: [u8; 2],
+    pub general_purpose_bit_flag: [u8; 2],
+    pub compression_method: [u8; 2],
+    pub last_mod_file_time: [u8; 2],
+    pub last_mod_file_date: [u8; 2],
+    pub crc_32: [u8; 4],
+    pub compressed_size: [u8; 4],
+    pub uncompressed_size: [u8; 4],
+    pub file_name_length: [u8; 2],
+    pub extra_field_length: [u8; 2],
+    pub file_comment_length: [u8; 2],
+    pub disk_number_start: [u8; 2],
+    pub internal_file_attributes: [u8; 2],
+    pub external_file_attributes: [u8; 4],
+    pub relative_offset_of_local_header: [u8; 4],
+    // Variable size
+    pub file_name: Vec<u8>,
+    pub extra_field: Vec<u8>,
+    pub file_comment: Vec<u8>,
+    pub end_position: u64,
+}
+#[derive(Debug)]
+struct EndOfCentralDirectoryRecord
+{
+    pub number_of_this_disk: [u8; 2],
+    pub number_of_disk_with_start_of_central_directory: [u8; 2],
+    pub total_number_of_entries_in_central_directory_on_current_disk: [u8; 2],
+    pub total_number_of_entries_in_central_directory: [u8; 2],
+    pub size_of_central_directory: [u8; 4],
+    pub offset_of_start_of_central_directory_with_respect_to_starting_disk_number: [u8; 4],
+    pub zip_file_comment_length: [u8; 2],
+    // Variable size
+    pub zip_file_comment: Vec<u8>,
+}
