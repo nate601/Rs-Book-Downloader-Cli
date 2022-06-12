@@ -361,7 +361,7 @@ pub struct CentralDirectoryHeader
     pub end_position: u64,
 }
 #[derive(Debug)]
-struct EndOfCentralDirectoryRecord
+pub struct EndOfCentralDirectoryRecord
 {
     pub number_of_this_disk: [u8; 2],
     pub number_of_disk_with_start_of_central_directory: [u8; 2],
