@@ -49,7 +49,7 @@ fn main()
     //Respond to DCC request and read all
     let zipped_results_file_bytes = dcc_connex.get_all_bytes();
 
-    println!("{:#?} ", zipped_results_file_bytes);
+    // println!("{:#?} ", zipped_results_file_bytes);
 
     //:verify file we received was pkzip file
     if PkZip::data_is_pkzip(&zipped_results_file_bytes)
@@ -67,12 +67,17 @@ fn main()
     //:unzip file received thru DCC request
     let pkzip = PkZip::new(&zipped_results_file_bytes);
     let pkzip_files = pkzip.get_files();
-    println!("pkzip files {:#?}", pkzip_files);
+    // println!("pkzip files {:#?}", pkzip_files);
     if pkzip_files.len() != 1
     {
         panic!("more than 1 file detected in zip file, should only have 1!");
     }
     let list_file = pkzip_files.first().unwrap();
+    println!("{:#?}", pkzip);
+    println!("{:#?}", pkzip_files);
+    let decompressed_data = list_file.decompress().unwrap();
+
+
 
     //: parse the txt file from Searchbot
 

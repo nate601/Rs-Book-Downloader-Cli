@@ -1,6 +1,9 @@
-use std::io::Seek;
-use std::io::Cursor;
+use std::collections::VecDeque;
 use std::io::prelude::*;
+use std::io::Cursor;
+use std::io::Seek;
+use std::io::SeekFrom;
+use std::ops::BitAnd;
 
 #[derive(Debug)]
 pub struct PkZip
@@ -22,17 +25,26 @@ impl PkZip
     {
         let ret_val: &mut Vec<PkZipFile> = &mut Vec::new();
         let cursor = &mut Cursor::new(&self.file_bytes);
-        for (cdh, lfh) in self.central_directory_headers.iter().zip(self.local_file_headers.to_vec())
+        for (cdh, lfh) in self
+            .central_directory_headers
+            .iter()
+            .zip(self.local_file_headers.to_vec())
         {
-            cursor.seek(std::io::SeekFrom::Start(lfh.end_position)).unwrap();
+            cursor
+                .seek(std::io::SeekFrom::Start(lfh.end_position))
+                .unwrap();
             let compressed_size = &mut u32::from_le_bytes(cdh.compressed_size);
             let buf: &mut Vec<u8> = &mut Vec::with_capacity(*compressed_size as usize);
             buf.resize(*compressed_size as usize, 0u8);
+            assert!(*compressed_size as usize == buf.len());
             cursor.read_exact(buf).unwrap();
             let k = PkZipFile {
                 file_name: String::from_utf8(cdh.file_name.to_vec()).unwrap(),
                 compressed_size: *compressed_size,
-                compression_method: u16::from_le_bytes(cdh.compression_method),
+                compression_method: get_compression_method(u16::from_le_bytes(
+                    cdh.compression_method,
+                ))
+                .unwrap(),
                 uncompressed_size: u32::from_le_bytes(cdh.uncompressed_size),
                 crc_32: u32::from_le_bytes(cdh.crc_32),
                 compressed_data: buf.to_vec(),
@@ -43,11 +55,10 @@ impl PkZip
     }
     pub fn new(file_bytes: &[u8]) -> Self
     {
-
-        let pkzip_magic_numbers: &[u8] = &[0x50, 0x4b, 0x03, 0x04];
+        let _pkzip_magic_numbers: &[u8] = &[0x50, 0x4b, 0x03, 0x04];
         let pkzip_central_file_header_signature: &[u8] = &[0x50, 0x4b, 0x01, 0x02];
         let pkzip_end_of_central_directory_signature: &[u8] = &[0x50, 0x4b, 0x05, 0x06];
-        let pkzip_local_file_header_signature: &[u8] = &[0x50, 0x4b, 0x03, 0x04];
+        let _pkzip_local_file_header_signature: &[u8] = &[0x50, 0x4b, 0x03, 0x04];
 
         let mut cursor = Cursor::new(file_bytes);
         // file_bytes.iter().position()
@@ -225,7 +236,7 @@ impl PkZip
             let file_name_length: &mut [u8; 2] = &mut [0; 2];
             let extra_field_length: &mut [u8; 2] = &mut [0; 2];
 
-            let buf = &mut [0u8; 2];
+            let buf = &mut [0u8; 4];
 
             cursor.read_exact(buf).unwrap();
             cursor.read_exact(version_needed_to_extract).unwrap();
@@ -287,33 +298,244 @@ pub struct PkZipFile
 {
     pub file_name: String,
     pub compressed_size: u32,
-    pub compression_method: u16,
+    pub compression_method: CompressionMethod,
     pub uncompressed_size: u32,
     pub crc_32: u32,
     pub compressed_data: Vec<u8>,
 }
 
-impl PkZipFile
+#[derive(Debug)]
+pub struct ByteArray
 {
-    pub fn new(
-        file_name: String,
-        compressed_size: u32,
-        compression_method: u16,
-        uncompressed_size: u32,
-        crc_32: u32,
-        compressed_data: Vec<u8>,
-    ) -> Self
+    pub byte: u8,
+    pub bits: Vec<bool>,
+}
+
+impl ByteArray
+{
+    pub fn new(byte: u8) -> Self
     {
+        let bits: &mut Vec<bool> = &mut Vec::with_capacity(8);
+        let mut byte_moved = byte;
+        for _x in 0..8
+        {
+            let lz = byte_moved.leading_zeros();
+            if lz >= 1
+            {
+                bits.push(false);
+            }
+            else
+            {
+                bits.push(true);
+            }
+            byte_moved = byte_moved.rotate_left(1);
+        }
         Self {
-            file_name,
-            compressed_size,
-            compression_method,
-            uncompressed_size,
-            crc_32,
-            compressed_data,
+            byte,
+            bits: bits.to_vec(),
         }
     }
+    pub fn get_bits(source: Vec<u8>) -> Vec<bool>
+    {
+        let mut ret_val: Vec<bool> = Vec::new();
+        for x in source
+        {
+            let ba = ByteArray::new(x);
+            for b in ba.bits
+            {
+                ret_val.push(b);
+            }
+        }
+        ret_val
+    }
+    pub fn is_bit_set(source: u8, n: u8) -> bool
+    {
+        let temp: u8 = 1 << (n - 1);
+        if source.bitand(temp) != 0
+        {
+            return true;
+        }
+        false
+    }
+    pub fn get_cursor(o: Vec<bool>) -> Cursor<Vec<u8>>
+    {
+        let mut k: Vec<u8> = Vec::new();
+        for i in o
+        {
+            if i
+            {
+                k.push(1)
+            }
+            else
+            {
+                k.push(0)
+            }
+        }
+        Cursor::new(k.to_vec())
+    }
+    pub fn get_bits_as_byte(&self)-> Vec<u8>
+    {
+        let mut k: Vec<u8> = Vec::new();
+        for i in self.bits.to_vec()
+        {
+            if i
+            {
+                k.push(1)
+            }
+            else
+            {
+                k.push(0)
+            }
+        }
+        return k;
+    }
+    pub fn get_bits_as_byte_for_array( o: &Vec<Self>) ->Vec<u8>
+    {
+        let mut r : Vec<u8> = Vec::new();
+        for i in o 
+        {
+            for j in i.get_bits_as_byte()
+            {
+                r.push(j);
+            }
+        }
+        r
+    }
+}
+#[derive(Debug)]
+pub struct ByteStream
+{
+    data: Vec<ByteArray>,
+    dq: VecDeque<u8>,
+}
 
+impl ByteStream
+{
+    pub fn get_bit(&mut self) -> Result<bool, &'static str>
+    {
+        match self.dq.pop_front()
+        {
+            Some(val) => Ok(val == 1),
+            None => Err("No more remaining bits"),
+        }
+    }
+    pub fn is_at_end(&self) -> bool
+    {
+        self.dq.is_empty()
+    }
+    pub fn new(data: Vec<ByteArray>) -> Self
+    {
+        Self {
+            dq: VecDeque::from_iter(ByteArray::get_bits_as_byte_for_array(&data)),
+            data,
+        }
+    }
+}
+
+impl PkZipFile
+{
+    pub fn decompress(&self) -> Result<Vec<u8>, &'static str>
+    {
+        if self.uncompressed_size == 0
+        {
+            return Ok(vec![0]);
+        }
+        match self.compression_method
+        {
+            CompressionMethod::NoCompression => Ok(self.compressed_data.to_vec()),
+            CompressionMethod::Deflated =>
+            {
+                let ret_val: Vec<u8> = Vec::new();
+                let mut compressed_byte_arrays : Vec<ByteArray> = Vec::new();
+                for i in self.compressed_data.to_vec()
+                {
+                    compressed_byte_arrays.push(ByteArray::new(i));
+                }
+                let mut byte_stream = ByteStream::new(compressed_byte_arrays);
+                
+
+                while !byte_stream.is_at_end()
+                { let val = byte_stream.get_bit().unwrap(); if val
+                    {
+                        print!("X");
+                    }
+                    else
+                    {
+                        print!("_");
+                    }
+                }
+                todo!();
+            }
+            _ => Err("Unimplemented"),
+        }
+    }
+}
+fn get_compression_method(method_identifier: u16) -> Result<CompressionMethod, &'static str>
+{
+    Ok(match method_identifier
+    {
+        0 => CompressionMethod::NoCompression,
+        1 => CompressionMethod::Shrunk,
+        2 => CompressionMethod::ReducedWithCompressionFactorOfOne,
+        3 => CompressionMethod::ReducedWithCompressionFactorOfTwo,
+        4 => CompressionMethod::ReducedWithCompressionFactorOfThree,
+        5 => CompressionMethod::ReducedWithCompressionFactorOfFour,
+        6 => CompressionMethod::Imploded,
+        7 => CompressionMethod::Tokenizing,
+        8 => CompressionMethod::Deflated,
+        9 => CompressionMethod::Deflate64,
+        10 => CompressionMethod::IbmTerse,
+        11 => CompressionMethod::ReservedByPkWareOne,
+        12 => CompressionMethod::Bzip2,
+        13 => CompressionMethod::ReservedByPkWareTwo,
+        14 => CompressionMethod::Lzma,
+        15 => CompressionMethod::ReservedByPkWareThree,
+        16 => CompressionMethod::IbmCmpSc,
+        17 => CompressionMethod::ReservedByPkWareFour,
+        18 => CompressionMethod::IbmTerseNew,
+        19 => CompressionMethod::IbmLz77,
+        20 => CompressionMethod::Deprecated,
+        93 => CompressionMethod::Zstd,
+        94 => CompressionMethod::Mp3,
+        95 => CompressionMethod::Xz,
+        96 => CompressionMethod::Jpeg,
+        97 => CompressionMethod::WavPack,
+        98 => CompressionMethod::Ppmd,
+        99 => CompressionMethod::Aex,
+        _ => return Err("Unknown compression type"),
+    })
+}
+#[derive(Debug, Clone)]
+pub enum CompressionMethod
+{
+    NoCompression,
+    Shrunk,
+    ReducedWithCompressionFactorOfOne,
+    ReducedWithCompressionFactorOfTwo,
+    ReducedWithCompressionFactorOfThree,
+    ReducedWithCompressionFactorOfFour,
+    Imploded,
+    Tokenizing,
+    Deflated,
+    Deflate64,
+    IbmTerse,
+    ReservedByPkWareOne,
+    Bzip2,
+    ReservedByPkWareTwo,
+    Lzma,
+    ReservedByPkWareThree,
+    IbmCmpSc,
+    ReservedByPkWareFour,
+    IbmTerseNew,
+    IbmLz77,
+    Deprecated,
+    Zstd,
+    Mp3,
+    Xz,
+    Jpeg,
+    WavPack,
+    Ppmd,
+    Aex,
 }
 #[derive(Debug, Clone)]
 pub struct LocalFileHeader
