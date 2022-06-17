@@ -373,7 +373,7 @@ impl ByteArray
         }
         Cursor::new(k.to_vec())
     }
-    pub fn get_bits_as_byte(&self)-> Vec<u8>
+    pub fn get_bits_as_byte(&self) -> Vec<u8>
     {
         let mut k: Vec<u8> = Vec::new();
         for i in self.bits.to_vec()
@@ -387,12 +387,12 @@ impl ByteArray
                 k.push(0)
             }
         }
-        return k;
+        k
     }
-    pub fn get_bits_as_byte_for_array( o: &Vec<Self>) ->Vec<u8>
+    pub fn get_bytearray_vec_as_combined_u8_vec(o: &[Self]) -> Vec<u8>
     {
-        let mut r : Vec<u8> = Vec::new();
-        for i in o 
+        let mut r: Vec<u8> = Vec::new();
+        for i in o
         {
             for j in i.get_bits_as_byte()
             {
@@ -426,7 +426,7 @@ impl ByteStream
     pub fn new(data: Vec<ByteArray>) -> Self
     {
         Self {
-            dq: VecDeque::from_iter(ByteArray::get_bits_as_byte_for_array(&data)),
+            dq: VecDeque::from_iter(ByteArray::get_bytearray_vec_as_combined_u8_vec(&data)),
             data,
         }
     }
@@ -446,16 +446,17 @@ impl PkZipFile
             CompressionMethod::Deflated =>
             {
                 let ret_val: Vec<u8> = Vec::new();
-                let mut compressed_byte_arrays : Vec<ByteArray> = Vec::new();
+                let mut compressed_byte_arrays: Vec<ByteArray> = Vec::new();
                 for i in self.compressed_data.to_vec()
                 {
                     compressed_byte_arrays.push(ByteArray::new(i));
                 }
                 let mut byte_stream = ByteStream::new(compressed_byte_arrays);
-                
 
                 while !byte_stream.is_at_end()
-                { let val = byte_stream.get_bit().unwrap(); if val
+                {
+                    let val = byte_stream.get_bit().unwrap();
+                    if val
                     {
                         print!("X");
                     }
