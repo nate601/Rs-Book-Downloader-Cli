@@ -12,6 +12,7 @@ mod irc_connection;
 mod irc_message;
 mod message_prefix;
 mod pkzip;
+mod pkzip_test;
 
 fn main()
 {

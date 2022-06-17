@@ -335,6 +335,20 @@ impl ByteArray
             bits: bits.to_vec(),
         }
     }
+    pub fn get_byte(&self) -> u8
+    {
+        let mut byte = 0x0u8;
+        for i in 0..8
+        {
+            byte = byte.rotate_left(1);
+            let v = self.bits.get(i);
+            if v.is_some() && *v.unwrap()
+            {
+                byte += 1;
+            }
+        }
+        byte
+    }
     pub fn get_bits(source: Vec<u8>) -> Vec<bool>
     {
         let mut ret_val: Vec<bool> = Vec::new();
@@ -373,7 +387,7 @@ impl ByteArray
         }
         Cursor::new(k.to_vec())
     }
-    pub fn get_bits_as_byte(&self) -> Vec<u8>
+    pub fn get_bits_as_u8_vector(&self) -> Vec<u8>
     {
         let mut k: Vec<u8> = Vec::new();
         for i in self.bits.to_vec()
@@ -394,7 +408,7 @@ impl ByteArray
         let mut r: Vec<u8> = Vec::new();
         for i in o
         {
-            for j in i.get_bits_as_byte()
+            for j in i.get_bits_as_u8_vector()
             {
                 r.push(j);
             }
@@ -418,6 +432,22 @@ impl ByteStream
             Some(val) => Ok(val == 1),
             None => Err("No more remaining bits"),
         }
+    }
+    pub fn get_number_from_arbitrary_bits(&mut self, number_of_bits: u8)
+        -> Result<u8, &'static str>
+    {
+        let bits = self.get_bits(number_of_bits);
+
+        todo!();
+    }
+    pub fn get_bits(&mut self, number_of_bits: u8) -> Result<Vec<bool>, &'static str>
+    {
+        let mut bits: Vec<bool> = Vec::new();
+        for i in 0..number_of_bits
+        {
+            bits.push(self.get_bit()?);
+        }
+        Ok(bits)
     }
     pub fn is_at_end(&self) -> bool
     {
@@ -453,6 +483,16 @@ impl PkZipFile
                 }
                 let mut byte_stream = ByteStream::new(compressed_byte_arrays);
 
+                loop
+                {
+                    let is_last_block = byte_stream.get_bit().unwrap();
+
+                    if is_last_block
+                    {
+                        println!("Last block");
+                        break;
+                    }
+                }
                 while !byte_stream.is_at_end()
                 {
                     let val = byte_stream.get_bit().unwrap();
