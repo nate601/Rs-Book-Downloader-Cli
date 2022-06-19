@@ -536,6 +536,16 @@ impl PkZipFile
         }
     }
 }
+pub struct Node {
+    left: Box<Node>,
+    right: Box<Node>,
+    value: Option<u8>
+}
+pub struct HuffmanTree
+{
+    root_node: Node
+
+}
 fn get_compression_method(method_identifier: u16) -> Result<CompressionMethod, &'static str>
 {
     Ok(match method_identifier
