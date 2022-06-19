@@ -335,6 +335,20 @@ impl ByteArray
             bits: bits.to_vec(),
         }
     }
+    pub fn new_from_bits(bist: &[bool]) -> Self
+    {
+        let mut byte = 0x0u8;
+        for i in 0..8
+        {
+            byte = byte.rotate_left(1);
+            let v = bist.get(i);
+            if v.is_some() && *v.unwrap()
+            {
+                byte += 1;
+            }
+        }
+        Self::new(byte)
+    }
     pub fn get_byte(&self) -> u8
     {
         let mut byte = 0x0u8;
@@ -436,9 +450,16 @@ impl ByteStream
     pub fn get_number_from_arbitrary_bits(&mut self, number_of_bits: u8)
         -> Result<u8, &'static str>
     {
-        let bits = self.get_bits(number_of_bits);
-
-        todo!();
+        let bits = self.get_bits(number_of_bits)?;
+        let mut b = VecDeque::from_iter(bits);
+        while b.len() < 8
+        {
+            b.push_front(false);
+        }
+        println!("{:#?}", b);
+        let ba = ByteArray::new_from_bits(&Vec::from(b)[0..=7]);
+        println!("{:#?}", ba);
+        Ok(ba.byte)
     }
     pub fn get_bits(&mut self, number_of_bits: u8) -> Result<Vec<bool>, &'static str>
     {
@@ -485,7 +506,11 @@ impl PkZipFile
 
                 loop
                 {
+                    println!("New block!!######################");
                     let is_last_block = byte_stream.get_bit().unwrap();
+                    let compression_type_indicator = byte_stream.get_number_from_arbitrary_bits(2).unwrap();
+                    let compression_type = get_deflate_compression_type(compression_type_indicator);
+                    println!("Compression type: {:#?} ", compression_type);
 
                     if is_last_block
                     {
@@ -545,6 +570,28 @@ fn get_compression_method(method_identifier: u16) -> Result<CompressionMethod, &
         99 => CompressionMethod::Aex,
         _ => return Err("Unknown compression type"),
     })
+}
+#[derive(Debug, Clone)]
+pub enum DeflateCompressionType
+{
+    Stored,
+    FixedHuffman,
+    DynamicHuffman,
+    Reserved
+}
+fn get_deflate_compression_type(type_indicator:u8)->DeflateCompressionType
+{
+    match type_indicator
+    {
+        0=> DeflateCompressionType::Stored,
+        1=> DeflateCompressionType::FixedHuffman,
+        2=> DeflateCompressionType::DynamicHuffman,
+        3=> DeflateCompressionType::Reserved,
+        //According to the spec, a type indicator of 3 should be treated as an error, so there is
+        //no issue as treating an unhandled type indicator as if it were 3
+        _=> DeflateCompressionType::Reserved
+    }
+
 }
 #[derive(Debug, Clone)]
 pub enum CompressionMethod
