@@ -305,13 +305,13 @@ pub struct PkZipFile
 }
 
 #[derive(Debug)]
-pub struct ByteArray
+pub struct BitArray
 {
     pub byte: u8,
     pub bits: Vec<bool>,
 }
 
-impl ByteArray
+impl BitArray
 {
     pub fn new(byte: u8) -> Self
     {
@@ -368,7 +368,7 @@ impl ByteArray
         let mut ret_val: Vec<bool> = Vec::new();
         for x in source
         {
-            let ba = ByteArray::new(x);
+            let ba = BitArray::new(x);
             for b in ba.bits
             {
                 ret_val.push(b);
@@ -433,7 +433,7 @@ impl ByteArray
 #[derive(Debug)]
 pub struct ByteStream
 {
-    data: Vec<ByteArray>,
+    data: Vec<BitArray>,
     dq: VecDeque<u8>,
 }
 
@@ -457,7 +457,7 @@ impl ByteStream
             b.push_front(false);
         }
         println!("{:#?}", b);
-        let ba = ByteArray::new_from_bits(&Vec::from(b)[0..=7]);
+        let ba = BitArray::new_from_bits(&Vec::from(b)[0..=7]);
         println!("{:#?}", ba);
         Ok(ba.byte)
     }
@@ -474,10 +474,10 @@ impl ByteStream
     {
         self.dq.is_empty()
     }
-    pub fn new(data: Vec<ByteArray>) -> Self
+    pub fn new(data: Vec<BitArray>) -> Self
     {
         Self {
-            dq: VecDeque::from_iter(ByteArray::get_bytearray_vec_as_combined_u8_vec(&data)),
+            dq: VecDeque::from_iter(BitArray::get_bytearray_vec_as_combined_u8_vec(&data)),
             data,
         }
     }
@@ -497,10 +497,10 @@ impl PkZipFile
             CompressionMethod::Deflated =>
             {
                 let ret_val: Vec<u8> = Vec::new();
-                let mut compressed_byte_arrays: Vec<ByteArray> = Vec::new();
+                let mut compressed_byte_arrays: Vec<BitArray> = Vec::new();
                 for i in self.compressed_data.to_vec()
                 {
-                    compressed_byte_arrays.push(ByteArray::new(i));
+                    compressed_byte_arrays.push(BitArray::new(i));
                 }
                 let mut byte_stream = ByteStream::new(compressed_byte_arrays);
 
