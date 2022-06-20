@@ -481,6 +481,31 @@ impl ByteStream
             data,
         }
     }
+    pub fn get_next_symbol(&mut self, tree: &HuffmanTree) -> u8
+    {
+        let mut cur_node = &tree.root_node;
+        loop
+        {
+            if cur_node.right.is_some() || cur_node.left.is_some()
+            {
+                let b = self.get_bit().unwrap();
+                if b
+                {
+                    //right
+                    cur_node = cur_node.right.as_ref().unwrap();
+                }
+                else
+                {
+                    cur_node = cur_node.left.as_ref().unwrap();
+                }
+            }
+            else
+            {
+                break;
+            }
+        }
+        cur_node.value.unwrap()
+    }
 }
 
 impl PkZipFile
