@@ -508,7 +508,8 @@ impl PkZipFile
                 {
                     println!("New block!!######################");
                     let is_last_block = byte_stream.get_bit().unwrap();
-                    let compression_type_indicator = byte_stream.get_number_from_arbitrary_bits(2).unwrap();
+                    let compression_type_indicator =
+                        byte_stream.get_number_from_arbitrary_bits(2).unwrap();
                     let compression_type = get_deflate_compression_type(compression_type_indicator);
                     println!("Compression type: {:#?} ", compression_type);
 
@@ -536,15 +537,85 @@ impl PkZipFile
         }
     }
 }
-pub struct Node {
-    left: Box<Node>,
-    right: Box<Node>,
-    value: Option<u8>
+#[derive(Debug)]
+pub struct Node
+{
+    left: Option<Box<Node>>,
+    right: Option<Box<Node>>,
+    value: Option<u8>,
 }
+
+impl Node
+{
+    pub fn new() -> Self
+    {
+        Self {
+            left: None,
+            right: None,
+            value: None,
+        }
+    }
+}
+#[derive(Debug)]
 pub struct HuffmanTree
 {
-    root_node: Node
+    root_node: Box<Node>,
+}
 
+impl HuffmanTree
+{
+    pub fn new() -> Self
+    {
+        Self {
+            root_node: Box::new(Node::new()),
+        }
+    }
+    pub fn insert(&mut self, address: u8, address_len: u8, value: u8)
+    {
+        let mut cur_node = &mut self.root_node;
+        for i in (0..address_len).rev()
+        {
+            let b = address & (1 << i);
+            if b == 1
+            {
+                //right
+                if cur_node.right.is_none()
+                {
+                    let new_node = Box::new(Node::new());
+                    cur_node.right = Some(new_node);
+                }
+                cur_node = cur_node.right.as_mut().unwrap();
+            }
+            else
+            {
+                //left
+                if cur_node.left.is_none()
+                {
+                    let new_node = Box::new(Node::new());
+                    cur_node.left = Some(new_node);
+                }
+                cur_node = cur_node.left.as_mut().unwrap();
+            }
+        }
+        cur_node.value = Some(value);
+    }
+    pub fn get_value(self, address: u8, address_len: u8) -> Option<u8>
+    {
+        let mut cur_node = self.root_node;
+        for i in (0..address_len).rev()
+        {
+            let b = address & (1 << i);
+            if b == 1
+            {
+                cur_node = cur_node.right.unwrap();
+            }
+            else
+            {
+                cur_node = cur_node.left.unwrap();
+            }
+        }
+        cur_node.value
+    }
 }
 fn get_compression_method(method_identifier: u16) -> Result<CompressionMethod, &'static str>
 {
@@ -587,21 +658,20 @@ pub enum DeflateCompressionType
     Stored,
     FixedHuffman,
     DynamicHuffman,
-    Reserved
+    Reserved,
 }
-fn get_deflate_compression_type(type_indicator:u8)->DeflateCompressionType
+fn get_deflate_compression_type(type_indicator: u8) -> DeflateCompressionType
 {
     match type_indicator
     {
-        0=> DeflateCompressionType::Stored,
-        1=> DeflateCompressionType::FixedHuffman,
-        2=> DeflateCompressionType::DynamicHuffman,
-        3=> DeflateCompressionType::Reserved,
+        0 => DeflateCompressionType::Stored,
+        1 => DeflateCompressionType::FixedHuffman,
+        2 => DeflateCompressionType::DynamicHuffman,
+        3 => DeflateCompressionType::Reserved,
         //According to the spec, a type indicator of 3 should be treated as an error, so there is
         //no issue as treating an unhandled type indicator as if it were 3
-        _=> DeflateCompressionType::Reserved
+        _ => DeflateCompressionType::Reserved,
     }
-
 }
 #[derive(Debug, Clone)]
 pub enum CompressionMethod
