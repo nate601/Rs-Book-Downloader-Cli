@@ -638,6 +638,9 @@ impl HuffmanTree
     }
     pub fn insert(&mut self, address: u8, address_len: u8, value: u16)
     {
+        eprintln!("address = {:#?}", address);
+        eprintln!("address_len = {:#?}", address_len);
+        eprintln!("value = {:#?}", value);
         let mut cur_node = &mut self.root_node;
         for i in (0..address_len).rev()
         {
@@ -682,11 +685,42 @@ impl HuffmanTree
         }
         cur_node._value
     }
-    pub fn construct_from_bitlengths(values: &[u8], bit_lengths: &[u8]) -> Self
+    pub fn construct_from_bitlengths(values: &[u16], bit_lengths: &[u8]) -> Self
     {
         let max_bit_length = bit_lengths.iter().max().unwrap();
-        let next_address: HashMap<u8, u8> = HashMap::new();
-        todo!();
+        eprintln!("max_bit_length = {:#?}", max_bit_length);
+        let mut count_for_each_bit_length: HashMap<u8, u8> = HashMap::new();
+        for bit_length in bit_lengths
+        {
+            count_for_each_bit_length.insert(
+                *bit_length,
+                count_for_each_bit_length.get(bit_length).unwrap_or(&0u8) + 1,
+            );
+        }
+
+        let mut next_address: HashMap<u8, u8> = HashMap::new();
+        for i in 2..=*max_bit_length
+        {
+            let k: u8 = (next_address.get(&(i - 1)).unwrap_or(&0)
+                + count_for_each_bit_length.get(&(i - 1)).unwrap_or(&0))
+                << 1;
+            next_address.insert(i, k);
+        }
+        next_address.insert(1, 0);
+        let mut ht =  Self::new();
+        for (i,v) in values.iter().enumerate()
+        {
+            let bit_length = bit_lengths.get(i).unwrap_or(&0u8);
+            if *bit_length == 0u8
+            {
+                continue;
+            }
+            eprintln!("bit_length = {:#?}", bit_length);
+            let s = *next_address.get(bit_length).unwrap();
+            ht.insert(s, *bit_length, *v);
+            next_address.insert(*bit_length, s+1);
+        }
+        ht
     }
 }
 fn get_compression_method(method_identifier: u16) -> Result<CompressionMethod, &'static str>

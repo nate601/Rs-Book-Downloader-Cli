@@ -44,6 +44,25 @@ fn huffman_tree_creation_test()
     println!("{:#?}", huffmanTree);
     assert_eq!(4u16, huffmanTree.get_value(0b001, 3).unwrap());
 }
+#[test]
+fn huffman_tree_creation_from_bit_lengths_test()
+{
+    let mut huffman_tree = HuffmanTree::new();
+    huffman_tree.insert(0b01, 2, 1);
+    huffman_tree.insert(0b1, 1, 2);
+    huffman_tree.insert(0b000, 3, 3);
+    huffman_tree.insert(0b001, 3, 4);
+    eprintln!("huffmanTree = {:#?}", huffman_tree);
+    assert_eq!(4u16, huffman_tree.get_value(0b001, 3).unwrap());
+    assert_eq!(4u16, huffman_tree.get_value(0b001, 3).unwrap());
+    assert_eq!(4u16, huffman_tree.get_value(0b001, 3).unwrap());
+    assert_eq!(4u16, huffman_tree.get_value(0b001, 3).unwrap());
+
+
+    let huffman_tree2 = HuffmanTree::construct_from_bitlengths(&[1u16,2u16,3u16,4u16], &[2u8,1u8,3u8,3u8]);
+    eprintln!("huffmanTree2 = {:#?}", huffman_tree2);
+    assert_eq!(4u16, huffman_tree2.get_value(0b001, 3).unwrap());
+}
 //#[test]
 fn huffman_tree_bit_decode_test()
 {
