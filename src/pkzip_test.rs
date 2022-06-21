@@ -42,7 +42,7 @@ fn huffman_tree_creation_test()
     huffmanTree.insert(0b001, 3, 4);
 
     println!("{:#?}", huffmanTree);
-    assert_eq!(4u8, huffmanTree.get_value(0b001, 3).unwrap());
+    assert_eq!(4u16, huffmanTree.get_value(0b001, 3).unwrap());
 }
 //#[test]
 fn huffman_tree_bit_decode_test()

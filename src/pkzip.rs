@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::io::prelude::*;
 use std::io::Cursor;
@@ -497,22 +498,22 @@ impl ByteStream
             data,
         }
     }
-    pub fn get_next_symbol(&mut self, tree: &HuffmanTree) -> u8
+    pub fn get_next_symbol(&mut self, tree: &HuffmanTree) -> u16
     {
         let mut cur_node = &tree.root_node;
         loop
         {
-            if cur_node.right.is_some() || cur_node.left.is_some()
+            if cur_node._right.is_some() || cur_node._left.is_some()
             {
                 let b = self.get_bit().unwrap();
                 if b
                 {
                     //right
-                    cur_node = cur_node.right.as_ref().unwrap();
+                    cur_node = cur_node._right.as_ref().unwrap();
                 }
                 else
                 {
-                    cur_node = cur_node.left.as_ref().unwrap();
+                    cur_node = cur_node._left.as_ref().unwrap();
                 }
             }
             else
@@ -520,7 +521,7 @@ impl ByteStream
                 break;
             }
         }
-        cur_node.value.unwrap()
+        cur_node._value.unwrap()
     }
 }
 
@@ -537,7 +538,7 @@ impl PkZipFile
             CompressionMethod::NoCompression => Ok(self.compressed_data.to_vec()),
             CompressionMethod::Deflated =>
             {
-                let mut ret_val: Vec<u8> = Vec::new();
+                let ret_val: Vec<u8> = Vec::new();
                 let mut ret_cursor = Cursor::new(ret_val);
                 let mut compressed_byte_arrays: Vec<BitArray> = Vec::new();
                 for i in self.compressed_data.to_vec()
@@ -559,7 +560,7 @@ impl PkZipFile
                         DeflateCompressionType::Stored =>
                         {
                             byte_stream.skip_until_byte_aligned()?;
-                            let mut len_buf: [u8;2] = [0u8;2];
+                            let mut len_buf: [u8; 2] = [0u8; 2];
                             len_buf[0] = byte_stream.get_byte().unwrap();
                             len_buf[1] = byte_stream.get_byte().unwrap();
                             let len = u16::from_be_bytes(len_buf);
@@ -605,9 +606,9 @@ impl PkZipFile
 #[derive(Debug)]
 pub struct Node
 {
-    left: Option<Box<Node>>,
-    right: Option<Box<Node>>,
-    value: Option<u8>,
+    _left: Option<Box<Node>>,
+    _right: Option<Box<Node>>,
+    _value: Option<u16>,
 }
 
 impl Node
@@ -615,9 +616,9 @@ impl Node
     pub fn new() -> Self
     {
         Self {
-            left: None,
-            right: None,
-            value: None,
+            _left: None,
+            _right: None,
+            _value: None,
         }
     }
 }
@@ -635,7 +636,7 @@ impl HuffmanTree
             root_node: Box::new(Node::new()),
         }
     }
-    pub fn insert(&mut self, address: u8, address_len: u8, value: u8)
+    pub fn insert(&mut self, address: u8, address_len: u8, value: u16)
     {
         let mut cur_node = &mut self.root_node;
         for i in (0..address_len).rev()
@@ -644,27 +645,27 @@ impl HuffmanTree
             if b == 1
             {
                 //right
-                if cur_node.right.is_none()
+                if cur_node._right.is_none()
                 {
                     let new_node = Box::new(Node::new());
-                    cur_node.right = Some(new_node);
+                    cur_node._right = Some(new_node);
                 }
-                cur_node = cur_node.right.as_mut().unwrap();
+                cur_node = cur_node._right.as_mut().unwrap();
             }
             else
             {
                 //left
-                if cur_node.left.is_none()
+                if cur_node._left.is_none()
                 {
                     let new_node = Box::new(Node::new());
-                    cur_node.left = Some(new_node);
+                    cur_node._left = Some(new_node);
                 }
-                cur_node = cur_node.left.as_mut().unwrap();
+                cur_node = cur_node._left.as_mut().unwrap();
             }
         }
-        cur_node.value = Some(value);
+        cur_node._value = Some(value);
     }
-    pub fn get_value(self, address: u8, address_len: u8) -> Option<u8>
+    pub fn get_value(self, address: u8, address_len: u8) -> Option<u16>
     {
         let mut cur_node = self.root_node;
         for i in (0..address_len).rev()
@@ -672,14 +673,20 @@ impl HuffmanTree
             let b = address & (1 << i);
             if b == 1
             {
-                cur_node = cur_node.right.unwrap();
+                cur_node = cur_node._right.unwrap();
             }
             else
             {
-                cur_node = cur_node.left.unwrap();
+                cur_node = cur_node._left.unwrap();
             }
         }
-        cur_node.value
+        cur_node._value
+    }
+    pub fn construct_from_bitlengths(values: &[u8], bit_lengths: &[u8]) -> Self
+    {
+        let max_bit_length = bit_lengths.iter().max().unwrap();
+        let next_address: HashMap<u8, u8> = HashMap::new();
+        todo!();
     }
 }
 fn get_compression_method(method_identifier: u16) -> Result<CompressionMethod, &'static str>
