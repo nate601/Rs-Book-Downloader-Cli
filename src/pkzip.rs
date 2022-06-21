@@ -470,6 +470,22 @@ impl ByteStream
         }
         Ok(bits)
     }
+    pub fn get_byte(&mut self) -> Result<u8, &'static str>
+    {
+        self.get_number_from_arbitrary_bits(8)
+    }
+    pub fn skip_until_byte_aligned(&mut self) -> Result<(), &'static str>
+    {
+        loop
+        {
+            if self.dq.len() % 8 == 0
+            {
+                break;
+            }
+            self.get_bit()?;
+        }
+        Ok(())
+    }
     pub fn is_at_end(&self) -> bool
     {
         self.dq.is_empty()
@@ -521,7 +537,8 @@ impl PkZipFile
             CompressionMethod::NoCompression => Ok(self.compressed_data.to_vec()),
             CompressionMethod::Deflated =>
             {
-                let ret_val: Vec<u8> = Vec::new();
+                let mut ret_val: Vec<u8> = Vec::new();
+                let mut ret_cursor = Cursor::new(ret_val);
                 let mut compressed_byte_arrays: Vec<BitArray> = Vec::new();
                 for i in self.compressed_data.to_vec()
                 {
@@ -537,6 +554,29 @@ impl PkZipFile
                         byte_stream.get_number_from_arbitrary_bits(2).unwrap();
                     let compression_type = get_deflate_compression_type(compression_type_indicator);
                     println!("Compression type: {:#?} ", compression_type);
+                    match compression_type
+                    {
+                        DeflateCompressionType::Stored =>
+                        {
+                            byte_stream.skip_until_byte_aligned()?;
+                            let mut len_buf: [u8;2] = [0u8;2];
+                            len_buf[0] = byte_stream.get_byte().unwrap();
+                            len_buf[1] = byte_stream.get_byte().unwrap();
+                            let len = u16::from_be_bytes(len_buf);
+                            for _i in 0..len
+                            {
+                                ret_cursor.write_all(&[byte_stream.get_byte()?]).unwrap();
+                            }
+                        }
+                        DeflateCompressionType::FixedHuffman => todo!(),
+                        DeflateCompressionType::DynamicHuffman => todo!(),
+                        DeflateCompressionType::Reserved =>
+                        {
+                            return Err(
+                                "Malformed zip file, DeflateCompresionType is of Reserved type.",
+                            )
+                        }
+                    }
 
                     if is_last_block
                     {

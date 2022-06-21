@@ -77,7 +77,9 @@ fn main()
     println!("{:#?}", pkzip);
     println!("{:#?}", pkzip_files);
     let decompressed_data = list_file.decompress().unwrap();
-
+    println!("{:?}", decompressed_data);
+    let decompressed_string = String::from_utf8(decompressed_data).unwrap();
+    println!("{:?}", decompressed_string);
 
 
     //: parse the txt file from Searchbot
