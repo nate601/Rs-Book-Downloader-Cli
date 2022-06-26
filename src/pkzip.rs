@@ -34,6 +34,7 @@ impl PkZip
             cursor
                 .seek(std::io::SeekFrom::Start(lfh.end_position))
                 .unwrap();
+            eprintln!("lfh.end_position = {:?}", lfh.end_position);
             let compressed_size = &mut u32::from_le_bytes(cdh.compressed_size);
             let buf: &mut Vec<u8> = &mut Vec::with_capacity(*compressed_size as usize);
             buf.resize(*compressed_size as usize, 0u8);
@@ -308,7 +309,6 @@ pub struct PkZipFile
 #[derive(Debug)]
 pub struct BitArray
 {
-    pub byte: u8,
     pub bits: Vec<bool>,
 }
 
@@ -332,14 +332,34 @@ impl BitArray
             byte_moved = byte_moved.rotate_left(1);
         }
         Self {
-            byte,
+            bits: bits.to_vec(),
+        }
+    }
+    pub fn new_from_word(byte: u16) -> Self
+    {
+        let bits: &mut Vec<bool> = &mut Vec::with_capacity(8);
+        let mut byte_moved = byte;
+        for _x in 0..u16::BITS
+        {
+            let lz = byte_moved.leading_zeros();
+            if lz >= 1
+            {
+                bits.push(false);
+            }
+            else
+            {
+                bits.push(true);
+            }
+            byte_moved = byte_moved.rotate_left(1);
+        }
+        Self {
             bits: bits.to_vec(),
         }
     }
     pub fn new_from_bits(bist: &[bool]) -> Self
     {
         let mut byte = 0x0u8;
-        for i in 0..8
+        for i in 0..bist.len()
         {
             byte = byte.rotate_left(1);
             let v = bist.get(i);
@@ -363,6 +383,37 @@ impl BitArray
             }
         }
         byte
+    }
+    pub fn get_word(&self) -> u16
+    {
+        let mut byte = 0x0u16;
+        for i in 0..8
+        {
+            byte = byte.rotate_left(1);
+            let v = self.bits.get(i);
+            if v.is_some() && *v.unwrap()
+            {
+                byte += 1;
+            }
+        }
+        byte
+    }
+    pub fn get_string(&self) -> String
+    {
+        let mut retVal = String::new();
+        retVal.push_str("0b");
+        for i in &self.bits
+        {
+            if *i
+            {
+                retVal.push('1');
+            }
+            else
+            {
+                retVal.push('0');
+            }
+        }
+        retVal
     }
     pub fn get_bits(source: Vec<u8>) -> Vec<bool>
     {
@@ -430,6 +481,12 @@ impl BitArray
         }
         r
     }
+
+    pub fn get_flipped(&self) -> BitArray
+    {
+        let k: Vec<bool> = self.bits.to_owned().into_iter().rev().collect();
+        Self::new_from_bits(&k)
+    }
 }
 #[derive(Debug)]
 pub struct ByteStream
@@ -440,7 +497,7 @@ pub struct ByteStream
 
 impl ByteStream
 {
-    pub fn get_bit(&mut self) -> Result<bool, &'static str>
+    pub fn read_bit(&mut self) -> Result<bool, &'static str>
     {
         match self.dq.pop_front()
         {
@@ -448,32 +505,35 @@ impl ByteStream
             None => Err("No more remaining bits"),
         }
     }
-    pub fn get_number_from_arbitrary_bits(&mut self, number_of_bits: u8)
-        -> Result<u8, &'static str>
+    pub fn read_number_from_arbitrary_bits(
+        &mut self,
+        number_of_bits: u16,
+    ) -> Result<u16, &'static str>
     {
-        let bits = self.get_bits(number_of_bits)?;
+        let bits = self.read_bits(number_of_bits)?;
         let mut b = VecDeque::from_iter(bits);
-        while b.len() < 8
+        while b.len() < 16
         {
             b.push_front(false);
         }
-        println!("{:#?}", b);
-        let ba = BitArray::new_from_bits(&Vec::from(b)[0..=7]);
-        println!("{:#?}", ba);
-        Ok(ba.byte)
+        let ba = BitArray::new_from_bits(&Vec::from(b));
+        Ok(ba.get_word())
     }
-    pub fn get_bits(&mut self, number_of_bits: u8) -> Result<Vec<bool>, &'static str>
+    pub fn read_bits(&mut self, number_of_bits: u16) -> Result<Vec<bool>, &'static str>
     {
-        let mut bits: Vec<bool> = Vec::new();
+        let mut bits: VecDeque<bool> = VecDeque::new();
         for i in 0..number_of_bits
         {
-            bits.push(self.get_bit()?);
+            bits.push_front(self.read_bit()?);
         }
-        Ok(bits)
+        Ok(bits.into_iter().collect())
     }
-    pub fn get_byte(&mut self) -> Result<u8, &'static str>
+    pub fn read_byte(&mut self) -> Result<u8, &'static str>
     {
-        self.get_number_from_arbitrary_bits(8)
+        // Ok(self.get_number_from_arbitrary_bits(8).unwrap() as u8)
+        let byte_bits = self.read_bits(8).unwrap();
+        let ba1 = BitArray::new_from_bits(&byte_bits);
+        Ok(ba1.get_byte())
     }
     pub fn skip_until_byte_aligned(&mut self) -> Result<(), &'static str>
     {
@@ -483,7 +543,7 @@ impl ByteStream
             {
                 break;
             }
-            self.get_bit()?;
+            self.read_bit()?;
         }
         Ok(())
     }
@@ -493,26 +553,41 @@ impl ByteStream
     }
     pub fn new(data: Vec<BitArray>) -> Self
     {
+        //Data is packed from least significant bit of the byte to most significant bit
+        let mut re_arranged_bytes: Vec<BitArray> = Vec::new();
+        for i in data
+        {
+            re_arranged_bytes.push(i.get_flipped());
+            // re_arranged_bytes.push(i);
+        }
         Self {
-            dq: VecDeque::from_iter(BitArray::get_bytearray_vec_as_combined_u8_vec(&data)),
-            data,
+            // dq: VecDeque::from_iter(BitArray::get_bytearray_vec_as_combined_u8_vec(&data)),
+            dq: VecDeque::from_iter(BitArray::get_bytearray_vec_as_combined_u8_vec(
+                &re_arranged_bytes,
+            )),
+            data: re_arranged_bytes,
         }
     }
-    pub fn get_next_symbol(&mut self, tree: &HuffmanTree) -> u16
+    pub fn read_next_symbol(&mut self, tree: &HuffmanTree) -> u16
     {
         let mut cur_node = &tree.root_node;
+        //TODO: remove debug value here
+        let mut code_so_far = String::new();
         loop
         {
             if cur_node._right.is_some() || cur_node._left.is_some()
             {
-                let b = self.get_bit().unwrap();
+                let b = self.read_bit().unwrap();
                 if b
                 {
                     //right
-                    cur_node = cur_node._right.as_ref().unwrap();
+                    code_so_far.push('1');
+                    cur_node = cur_node._right.as_ref().unwrap_or_else(|| panic!("Node has no child node {:#?}.  the current direction is {} (1=right). Code so far: {}  ",
+                        cur_node, b, code_so_far));
                 }
                 else
                 {
+                    code_so_far.push('0');
                     cur_node = cur_node._left.as_ref().unwrap();
                 }
             }
@@ -521,7 +596,10 @@ impl ByteStream
                 break;
             }
         }
-        cur_node._value.unwrap()
+        let val = cur_node._value.unwrap();
+        println!("Symbol decoded: 0b{} = {}", code_so_far, val);
+
+        val
     }
 }
 
@@ -535,7 +613,7 @@ impl PkZipFile
         }
         match self.compression_method
         {
-            CompressionMethod::NoCompression => Ok(self.compressed_data.to_vec()),
+            CompressionMethod::NoCompression => return Ok(self.compressed_data.to_vec()),
             CompressionMethod::Deflated =>
             {
                 let ret_val: Vec<u8> = Vec::new();
@@ -550,34 +628,32 @@ impl PkZipFile
                 loop
                 {
                     println!("New block!!######################");
-                    let is_last_block = byte_stream.get_bit().unwrap();
+                    let is_last_block = byte_stream.read_bit().unwrap();
                     let compression_type_indicator =
-                        byte_stream.get_number_from_arbitrary_bits(2).unwrap();
+                        byte_stream.read_number_from_arbitrary_bits(2).unwrap();
                     let compression_type = get_deflate_compression_type(compression_type_indicator);
                     println!("Compression type: {:#?} ", compression_type);
                     match compression_type
                     {
                         DeflateCompressionType::Stored =>
                         {
-                            byte_stream.skip_until_byte_aligned()?;
-                            let mut len_buf: [u8; 2] = [0u8; 2];
-                            len_buf[0] = byte_stream.get_byte().unwrap();
-                            len_buf[1] = byte_stream.get_byte().unwrap();
-                            let len = u16::from_be_bytes(len_buf);
-                            for _i in 0..len
-                            {
-                                ret_cursor.write_all(&[byte_stream.get_byte()?]).unwrap();
-                            }
+                            extract_stored(&mut byte_stream, &mut ret_cursor);
                         }
-                        DeflateCompressionType::FixedHuffman => todo!(),
-                        DeflateCompressionType::DynamicHuffman => todo!(),
+                        DeflateCompressionType::FixedHuffman =>
+                        {
+                            extract_fixed_huffman(&mut byte_stream, &mut ret_cursor);
+                        }
+                        DeflateCompressionType::DynamicHuffman =>
+                        {
+                            extract_dynamic_huffman(&mut byte_stream, &mut ret_cursor);
+                        }
                         DeflateCompressionType::Reserved =>
                         {
                             return Err(
                                 "Malformed zip file, DeflateCompresionType is of Reserved type.",
                             )
                         }
-                    }
+                    };
 
                     if is_last_block
                     {
@@ -585,23 +661,355 @@ impl PkZipFile
                         break;
                     }
                 }
-                while !byte_stream.is_at_end()
-                {
-                    let val = byte_stream.get_bit().unwrap();
-                    if val
-                    {
-                        print!("X");
-                    }
-                    else
-                    {
-                        print!("_");
-                    }
-                }
-                todo!();
+                return Ok(ret_cursor.into_inner());
             }
-            _ => Err("Unimplemented"),
+            _ => return Err("Unimplemented"),
         }
     }
+}
+
+fn extract_dynamic_huffman(byte_stream: &mut ByteStream, ret_cursor: &mut Cursor<Vec<u8>>)
+{
+    let hlit = byte_stream.read_number_from_arbitrary_bits(5).unwrap() + 257u16; // # of literal/length codes
+    let hdist = byte_stream.read_number_from_arbitrary_bits(5).unwrap() + 1u16; // # of Distance Codes
+    let hclen = byte_stream.read_number_from_arbitrary_bits(4).unwrap() + 4u16; // # of Code Length codes
+
+    let mut unsorted_lengths = Vec::new();
+    for i in 0..hclen
+    {
+        let length = byte_stream.read_number_from_arbitrary_bits(3).unwrap();
+        unsorted_lengths.push(length);
+    }
+    let sort_order: &[u16; 19] = &[
+        16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15,
+    ];
+    let mut sorted: [u16; 19] = [0u16; 19];
+    for (i, v) in unsorted_lengths.iter().enumerate()
+    {
+        sorted[sort_order[i] as usize] = *v;
+    }
+    let code_lengths_values: [u16; 19] = [
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+    ];
+    let ht_of_code_lengths = HuffmanTree::construct_from_bitlengths(&code_lengths_values, &sorted);
+    //read code length bit lengths
+    let mut last_bit_length: u16 = 0;
+
+    let mut literal_length_bitlengths: Vec<u16> = Vec::new();
+    loop
+    {
+        if literal_length_bitlengths.len() >= hlit as usize
+        {
+            break;
+        }
+        let bit_length_value = byte_stream.read_next_symbol(&ht_of_code_lengths);
+        if bit_length_value <= 15
+        {
+            //bit length literal
+            literal_length_bitlengths.push(bit_length_value);
+            last_bit_length = bit_length_value;
+            continue;
+        }
+        if bit_length_value == 16
+        {
+            let number_of_times_to_repeat =
+                byte_stream.read_number_from_arbitrary_bits(2).unwrap() + 3u16;
+            for i in 0..number_of_times_to_repeat
+            {
+                literal_length_bitlengths.push(last_bit_length);
+            }
+            continue;
+        }
+        if bit_length_value == 17
+        {
+            let number_of_times_to_repeat =
+                byte_stream.read_number_from_arbitrary_bits(3).unwrap() + 3u16;
+            for i in 0..number_of_times_to_repeat
+            {
+                literal_length_bitlengths.push(0);
+            }
+            last_bit_length = 0;
+            continue;
+        }
+        if bit_length_value == 18
+        {
+            let number_of_times_to_repeat =
+                byte_stream.read_number_from_arbitrary_bits(7).unwrap() + 11u16;
+            for i in 0..number_of_times_to_repeat
+            {
+                literal_length_bitlengths.push(0);
+            }
+            last_bit_length = 0;
+            continue;
+        }
+    }
+
+    let mut distance_ht_bit_lengths: Vec<u16> = Vec::new();
+
+    loop
+    {
+        if distance_ht_bit_lengths.len() >= hdist as usize
+        {
+            break;
+        }
+        let bit_length_value = byte_stream.read_next_symbol(&ht_of_code_lengths);
+        if bit_length_value <= 15
+        {
+            distance_ht_bit_lengths.push(bit_length_value);
+            last_bit_length = bit_length_value;
+            continue;
+        }
+        if bit_length_value == 16
+        {
+            let number_of_times_to_repeat =
+                byte_stream.read_number_from_arbitrary_bits(2).unwrap() + 3u16;
+            for i in 0..number_of_times_to_repeat
+            {
+                distance_ht_bit_lengths.push(last_bit_length);
+            }
+            continue;
+        }
+        if bit_length_value == 17
+        {
+            let number_of_times_to_repeat =
+                byte_stream.read_number_from_arbitrary_bits(3).unwrap() + 3u16;
+            for i in 0..number_of_times_to_repeat
+            {
+                distance_ht_bit_lengths.push(0);
+            }
+            last_bit_length = 0;
+            continue;
+        }
+        if bit_length_value == 18
+        {
+            let number_of_times_to_repeat =
+                byte_stream.read_number_from_arbitrary_bits(7).unwrap() + 11u16;
+            for i in 0..number_of_times_to_repeat
+            {
+                distance_ht_bit_lengths.push(0);
+            }
+            last_bit_length = 0;
+            continue;
+        }
+    }
+    eprintln!(
+        "literal_length_bitlengths = {:?}",
+        literal_length_bitlengths
+    );
+    eprintln!("distance_ht_bit_lengths = {:?}", distance_ht_bit_lengths);
+
+    let literal_length_values: [u16; 287] = (0u16..287u16).collect::<Vec<_>>().try_into().unwrap();
+    let distance_values: [u16; 30] = (0u16..=29u16).collect::<Vec<_>>().try_into().unwrap();
+
+    let literal_length_ht =
+        HuffmanTree::construct_from_bitlengths(&literal_length_values, &literal_length_bitlengths);
+    let distance_ht =
+        HuffmanTree::construct_from_bitlengths(&distance_values, &distance_ht_bit_lengths);
+    let (_, _, length_values, distance_valuess) = get_fixed_huffman_trees();
+    let ret_val: Vec<u8> = Vec::new();
+    let mut ret_cursor = Cursor::new(ret_val);
+    extract_using_given_huffman_trees(
+        byte_stream,
+        literal_length_ht,
+        length_values,
+        distance_ht,
+        distance_valuess,
+        &mut ret_cursor,
+    );
+    let text = String::from_utf8(ret_cursor.into_inner()).unwrap();
+    eprintln!("text = {:?}", text);
+}
+
+fn extract_stored(byte_stream: &mut ByteStream, ret_cursor: &mut Cursor<Vec<u8>>)
+{
+    byte_stream.skip_until_byte_aligned().unwrap();
+    let mut len_buf: [u8; 2] = [0u8; 2];
+    len_buf[0] = byte_stream.read_byte().unwrap();
+    len_buf[1] = byte_stream.read_byte().unwrap();
+    let len = u16::from_be_bytes(len_buf);
+    for _i in 0..len
+    {
+        ret_cursor
+            .write_all(&[byte_stream.read_byte().unwrap()])
+            .unwrap();
+    }
+}
+
+fn extract_fixed_huffman(byte_stream: &mut ByteStream, ret_cursor: &mut Cursor<Vec<u8>>)
+{
+    let (literal_length_ht, distance_ht, length_values, distance_values) =
+        get_fixed_huffman_trees();
+    extract_using_given_huffman_trees(
+        byte_stream,
+        literal_length_ht,
+        length_values,
+        distance_ht,
+        distance_values,
+        ret_cursor,
+    );
+    let text = String::from_utf8(ret_cursor.get_ref().to_vec());
+    eprintln!("text = {:?}", text);
+}
+
+fn extract_using_given_huffman_trees(
+    byte_stream: &mut ByteStream,
+    literal_length_ht: HuffmanTree,
+    length_values: Vec<u16>,
+    distance_ht: HuffmanTree,
+    distance_values: Vec<u16>,
+    ret_cursor: &mut Cursor<Vec<u8>>,
+)
+{
+    loop
+    {
+        //decode literal character from input stream
+        let next_literal_or_length = byte_stream.read_next_symbol(&literal_length_ht);
+        if next_literal_or_length <= 255
+        {
+            //copy character to output stream
+            eprintln!("literal = {:?}", next_literal_or_length);
+            ret_cursor
+                .write_all(&[next_literal_or_length as u8])
+                .unwrap();
+        }
+        else
+        {
+            //end of block
+            if next_literal_or_length == 256
+            {
+                eprintln!(
+                    "END OF BLOCK ######################### = {:?}",
+                    next_literal_or_length
+                );
+                //break from loop
+                break;
+            }
+            else
+            {
+                let length_code = next_literal_or_length;
+                eprintln!("length_code = {:?}", length_code);
+                let mut length_base = None;
+                let mut length_number_of_extra_bits = None;
+                for (i, x) in length_values.to_owned().into_iter().enumerate()
+                {
+                    if i % 3 == 0 && x == length_code
+                    {
+                        length_base = Some(length_values[i + 2]);
+                        length_number_of_extra_bits = Some(length_values[i + 1]);
+                        break;
+                    }
+                }
+                if (length_base.is_none())
+                {
+                    println!("no length base detected for code of: {}", length_code);
+                    eprintln!("length_values = {:?}", length_values);
+                }
+                if (length_number_of_extra_bits.is_none())
+                {
+                    println!("no length_extra_bits detected for code of: {}", length_code);
+                    eprintln!("length_values = {:?}", length_values);
+                }
+                let length = length_base.unwrap()
+                    + byte_stream
+                        .read_number_from_arbitrary_bits(length_number_of_extra_bits.unwrap())
+                        .unwrap() as u16;
+                let distance_code = byte_stream.read_next_symbol(&distance_ht);
+                let mut distance_base = None;
+                let mut distance_number_of_extra_bits = None;
+                for (i, x) in distance_values.to_owned().into_iter().enumerate()
+                {
+                    if i % 3 == 0 && x == distance_code
+                    {
+                        distance_number_of_extra_bits = Some(distance_values[i + 1]);
+                        distance_base = Some(distance_values[i + 2]);
+                    }
+                }
+                if (distance_base.is_none())
+                {
+                    println!("no distance base for code of: {}", distance_code);
+                    eprintln!("distance_values = {:?}", distance_values);
+                }
+                if (distance_number_of_extra_bits.is_none())
+                {
+                    println!("no distance number of bits for code of: {}", distance_code);
+                    eprintln!("distance_values = {:?}", distance_values);
+                }
+                let distance = distance_base.unwrap()
+                    + byte_stream
+                        .read_number_from_arbitrary_bits(distance_number_of_extra_bits.unwrap())
+                        .unwrap() as u16;
+                println!("Seek -{} and copy {} bits", distance, length);
+                ret_cursor
+                    .seek(SeekFrom::Current(distance as i64 * -1i64))
+                    .unwrap();
+                let mut copy_value: Vec<u8> = vec![0; length as usize];
+                ret_cursor.read_exact(&mut copy_value).unwrap();
+                ret_cursor.seek(SeekFrom::End(0)).unwrap();
+                ret_cursor.write_all(&copy_value).unwrap();
+            }
+        }
+    }
+}
+
+pub fn get_fixed_huffman_trees() -> (HuffmanTree, HuffmanTree, Vec<u16>, Vec<u16>)
+{
+    let length_values: Vec<u16> = vec![
+        257, 0, 3, 258, 0, 4, 259, 0, 5, 260, 0, 6, 261, 0, 7, 262, 0, 8, 263, 0, 9, 264, 0, 10,
+        265, 1, 11, 266, 1, 13, 267, 1, 15, 268, 1, 17, 269, 2, 19, 270, 2, 23, 271, 2, 27, 272, 2,
+        31, 273, 3, 35, 274, 3, 43, 275, 3, 51, 276, 3, 59, 277, 4, 67, 278, 4, 83, 279, 4, 99,
+        280, 4, 115, 281, 5, 131, 282, 5, 163, 283, 5, 195, 284, 5, 227, 285, 0, 258,
+    ];
+    let distance_values: Vec<u16> = vec![
+        0, 0, 1, 1, 0, 2, 2, 0, 3, 3, 0, 4, 4, 1, 5, 5, 1, 7, 6, 2, 9, 8, 3, 17, 9, 3, 25, 10, 4,
+        33, 11, 4, 49, 12, 5, 65, 13, 5, 97, 14, 6, 129, 16, 7, 257, 17, 7, 385, 18, 8, 513, 19, 8,
+        769, 20, 9, 1025, 21, 9, 1537, 22, 10, 2049, 24, 11, 4097, 25, 11, 6145, 26, 12, 8193, 27,
+        12, 12289, 28, 13, 16385, 29, 13, 24577, 15, 6, 193,
+    ];
+    let literal_length_ht_values: [u16; 288] =
+        (0u16..=287u16).collect::<Vec<_>>().try_into().unwrap();
+    let mut literal_length_ht_bit_length: [u16; 288] = [0; 288];
+    for (i, ele) in literal_length_ht_values.into_iter().enumerate()
+    {
+        if ele <= 143
+        {
+            literal_length_ht_bit_length[i] = 8;
+            continue;
+        }
+        if ele <= 255
+        {
+            literal_length_ht_bit_length[i] = 9;
+            continue;
+        }
+        if ele <= 279
+        {
+            literal_length_ht_bit_length[i] = 7;
+            continue;
+        }
+        if ele <= 287
+        {
+            literal_length_ht_bit_length[i] = 8;
+            continue;
+        }
+    }
+    // eprintln!("literal_length_ht_values = {:?}", literal_length_ht_values);
+    // eprintln!(
+    //     "literal_length_ht_bit_length = {:?}",
+    //     literal_length_ht_bit_length
+    // );
+    let literal_length_ht = HuffmanTree::construct_from_bitlengths(
+        &literal_length_ht_values,
+        &literal_length_ht_bit_length,
+    );
+    let distance_ht_values: [u16; 32] = (0u16..=31).collect::<Vec<_>>().try_into().unwrap();
+    let distance_ht_bit_lengths: [u16; 32] = [5; 32];
+    let distance_ht =
+        HuffmanTree::construct_from_bitlengths(&distance_ht_values, &distance_ht_bit_lengths);
+    (
+        literal_length_ht,
+        distance_ht,
+        length_values,
+        distance_values,
+    )
 }
 #[derive(Debug)]
 pub struct Node
@@ -636,16 +1044,13 @@ impl HuffmanTree
             root_node: Box::new(Node::new()),
         }
     }
-    pub fn insert(&mut self, address: u8, address_len: u8, value: u16)
+    pub fn insert(&mut self, address: u16, address_len: u16, value: u16)
     {
-        eprintln!("address = {:#?}", address);
-        eprintln!("address_len = {:#?}", address_len);
-        eprintln!("value = {:#?}", value);
         let mut cur_node = &mut self.root_node;
         for i in (0..address_len).rev()
         {
             let b = address & (1 << i);
-            if b == 1
+            if b != 0
             {
                 //right
                 if cur_node._right.is_none()
@@ -668,13 +1073,13 @@ impl HuffmanTree
         }
         cur_node._value = Some(value);
     }
-    pub fn get_value(self, address: u8, address_len: u8) -> Option<u16>
+    pub fn get_value(self, address: u16, address_len: u8) -> Option<u16>
     {
         let mut cur_node = self.root_node;
         for i in (0..address_len).rev()
         {
             let b = address & (1 << i);
-            if b == 1
+            if b != 0
             {
                 cur_node = cur_node._right.unwrap();
             }
@@ -685,40 +1090,43 @@ impl HuffmanTree
         }
         cur_node._value
     }
-    pub fn construct_from_bitlengths(values: &[u16], bit_lengths: &[u8]) -> Self
+    pub fn construct_from_bitlengths(values: &[u16], bit_lengths: &[u16]) -> Self
     {
         let max_bit_length = bit_lengths.iter().max().unwrap();
-        eprintln!("max_bit_length = {:#?}", max_bit_length);
-        let mut count_for_each_bit_length: HashMap<u8, u8> = HashMap::new();
+        let mut count_for_each_bit_length: HashMap<u16, u16> = HashMap::new();
         for bit_length in bit_lengths
         {
             count_for_each_bit_length.insert(
                 *bit_length,
-                count_for_each_bit_length.get(bit_length).unwrap_or(&0u8) + 1,
+                count_for_each_bit_length.get(bit_length).unwrap_or(&0u16) + 1,
             );
         }
 
-        let mut next_address: HashMap<u8, u8> = HashMap::new();
+        let mut next_address: HashMap<u16, u16> = HashMap::new();
         for i in 2..=*max_bit_length
         {
-            let k: u8 = (next_address.get(&(i - 1)).unwrap_or(&0)
+            let k: u16 = (next_address.get(&(i - 1)).unwrap_or(&0)
                 + count_for_each_bit_length.get(&(i - 1)).unwrap_or(&0))
                 << 1;
             next_address.insert(i, k);
         }
         next_address.insert(1, 0);
-        let mut ht =  Self::new();
-        for (i,v) in values.iter().enumerate()
+        let mut ht = Self::new();
+        for (i, v) in values.iter().enumerate()
         {
-            let bit_length = bit_lengths.get(i).unwrap_or(&0u8);
-            if *bit_length == 0u8
+            let bit_length = bit_lengths.get(i).unwrap_or(&0u16);
+            if *bit_length == 0u16
             {
                 continue;
             }
-            eprintln!("bit_length = {:#?}", bit_length);
-            let s = *next_address.get(bit_length).unwrap();
-            ht.insert(s, *bit_length, *v);
-            next_address.insert(*bit_length, s+1);
+            let s = BitArray::new_from_word(*next_address.get(bit_length).unwrap()).get_string();
+            let s_val = *next_address.get(bit_length).unwrap();
+            // eprintln!(
+            //    "value {} is given address {}, of bit_length {}",
+            //    v, s, bit_length
+            // );
+            ht.insert(s_val, *bit_length, *v);
+            next_address.insert(*bit_length, s_val + 1);
         }
         ht
     }
@@ -766,7 +1174,7 @@ pub enum DeflateCompressionType
     DynamicHuffman,
     Reserved,
 }
-fn get_deflate_compression_type(type_indicator: u8) -> DeflateCompressionType
+fn get_deflate_compression_type(type_indicator: u16) -> DeflateCompressionType
 {
     match type_indicator
     {

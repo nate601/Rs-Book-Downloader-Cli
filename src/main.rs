@@ -67,15 +67,16 @@ fn main()
 
     //:unzip file received thru DCC request
     let pkzip = PkZip::new(&zipped_results_file_bytes);
+    eprintln!("pkzip = {:?}", pkzip);
     let pkzip_files = pkzip.get_files();
-    // println!("pkzip files {:#?}", pkzip_files);
+    // println!("pkzip files {:?}", pkzip_files);
     if pkzip_files.len() != 1
     {
         panic!("more than 1 file detected in zip file, should only have 1!");
     }
     let list_file = pkzip_files.first().unwrap();
-    println!("{:#?}", pkzip);
-    println!("{:#?}", pkzip_files);
+    // println!("{:#?}", pkzip);
+    // println!("{:#?}", pkzip_files);
     let decompressed_data = list_file.decompress().unwrap();
     println!("{:?}", decompressed_data);
     let decompressed_string = String::from_utf8(decompressed_data).unwrap();
