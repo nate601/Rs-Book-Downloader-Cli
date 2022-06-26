@@ -34,7 +34,7 @@ impl PkZip
             cursor
                 .seek(std::io::SeekFrom::Start(lfh.end_position))
                 .unwrap();
-            eprintln!("lfh.end_position = {:?}", lfh.end_position);
+            // eprintln!("lfh.end_position = {:?}", lfh.end_position);
             let compressed_size = &mut u32::from_le_bytes(cdh.compressed_size);
             let buf: &mut Vec<u8> = &mut Vec::with_capacity(*compressed_size as usize);
             buf.resize(*compressed_size as usize, 0u8);
@@ -72,7 +72,7 @@ impl PkZip
             .windows(pkzip_end_of_central_directory_signature.len())
             .position(|x| x == pkzip_end_of_central_directory_signature)
             .unwrap() as u64;
-        println!("posiiton of ECDR sig {:#?}", position_of_ecdr);
+        // println!("posiiton of ECDR sig {:#?}", position_of_ecdr);
         cursor
             .seek(std::io::SeekFrom::Start(position_of_ecdr))
             .unwrap();
@@ -597,7 +597,7 @@ impl ByteStream
             }
         }
         let val = cur_node._value.unwrap();
-        println!("Symbol decoded: 0b{} = {}", code_so_far, val);
+        // println!("Symbol decoded: 0b{} = {}", code_so_far, val);
 
         val
     }
@@ -627,12 +627,12 @@ impl PkZipFile
 
                 loop
                 {
-                    println!("New block!!######################");
+                    // println!("New block!!######################");
                     let is_last_block = byte_stream.read_bit().unwrap();
                     let compression_type_indicator =
                         byte_stream.read_number_from_arbitrary_bits(2).unwrap();
                     let compression_type = get_deflate_compression_type(compression_type_indicator);
-                    println!("Compression type: {:#?} ", compression_type);
+                    // println!("Compression type: {:#?} ", compression_type);
                     match compression_type
                     {
                         DeflateCompressionType::Stored =>
@@ -657,7 +657,7 @@ impl PkZipFile
 
                     if is_last_block
                     {
-                        println!("Last block");
+                        // println!("Last block");
                         break;
                     }
                 }
@@ -792,11 +792,11 @@ fn extract_dynamic_huffman(byte_stream: &mut ByteStream, ret_cursor: &mut Cursor
             continue;
         }
     }
-    eprintln!(
-        "literal_length_bitlengths = {:?}",
-        literal_length_bitlengths
-    );
-    eprintln!("distance_ht_bit_lengths = {:?}", distance_ht_bit_lengths);
+    // eprintln!(
+        // "literal_length_bitlengths = {:?}",
+        // literal_length_bitlengths
+    // );
+    // eprintln!("distance_ht_bit_lengths = {:?}", distance_ht_bit_lengths);
 
     let literal_length_values: [u16; 287] = (0u16..287u16).collect::<Vec<_>>().try_into().unwrap();
     let distance_values: [u16; 30] = (0u16..=29u16).collect::<Vec<_>>().try_into().unwrap();
@@ -817,7 +817,7 @@ fn extract_dynamic_huffman(byte_stream: &mut ByteStream, ret_cursor: &mut Cursor
         &mut ret_cursor,
     );
     let text = String::from_utf8(ret_cursor.into_inner()).unwrap();
-    eprintln!("text = {:?}", text);
+    // eprintln!("text = {:?}", text);
 }
 
 fn extract_stored(byte_stream: &mut ByteStream, ret_cursor: &mut Cursor<Vec<u8>>)
@@ -848,7 +848,7 @@ fn extract_fixed_huffman(byte_stream: &mut ByteStream, ret_cursor: &mut Cursor<V
         ret_cursor,
     );
     let text = String::from_utf8(ret_cursor.get_ref().to_vec());
-    eprintln!("text = {:?}", text);
+    // eprintln!("text = {:?}", text);
 }
 
 fn extract_using_given_huffman_trees(
@@ -867,7 +867,7 @@ fn extract_using_given_huffman_trees(
         if next_literal_or_length <= 255
         {
             //copy character to output stream
-            eprintln!("literal = {:?}", next_literal_or_length);
+            // eprintln!("literal = {:?}", next_literal_or_length);
             ret_cursor
                 .write_all(&[next_literal_or_length as u8])
                 .unwrap();
@@ -877,17 +877,17 @@ fn extract_using_given_huffman_trees(
             //end of block
             if next_literal_or_length == 256
             {
-                eprintln!(
-                    "END OF BLOCK ######################### = {:?}",
-                    next_literal_or_length
-                );
+                // eprintln!(
+                //     "END OF BLOCK ######################### = {:?}",
+                //     next_literal_or_length
+                // );
                 //break from loop
                 break;
             }
             else
             {
                 let length_code = next_literal_or_length;
-                eprintln!("length_code = {:?}", length_code);
+                // eprintln!("length_code = {:?}", length_code);
                 let mut length_base = None;
                 let mut length_number_of_extra_bits = None;
                 for (i, x) in length_values.to_owned().into_iter().enumerate()
@@ -899,16 +899,16 @@ fn extract_using_given_huffman_trees(
                         break;
                     }
                 }
-                if (length_base.is_none())
-                {
-                    println!("no length base detected for code of: {}", length_code);
-                    eprintln!("length_values = {:?}", length_values);
-                }
-                if (length_number_of_extra_bits.is_none())
-                {
-                    println!("no length_extra_bits detected for code of: {}", length_code);
-                    eprintln!("length_values = {:?}", length_values);
-                }
+                // if (length_base.is_none())
+                // {
+                //     // println!("no length base detected for code of: {}", length_code);
+                //     // eprintln!("length_values = {:?}", length_values);
+                // }
+                // if (length_number_of_extra_bits.is_none())
+                // {
+                //     // println!("no length_extra_bits detected for code of: {}", length_code);
+                //     // eprintln!("length_values = {:?}", length_values);
+                // }
                 let length = length_base.unwrap()
                     + byte_stream
                         .read_number_from_arbitrary_bits(length_number_of_extra_bits.unwrap())
@@ -924,21 +924,21 @@ fn extract_using_given_huffman_trees(
                         distance_base = Some(distance_values[i + 2]);
                     }
                 }
-                if (distance_base.is_none())
-                {
-                    println!("no distance base for code of: {}", distance_code);
-                    eprintln!("distance_values = {:?}", distance_values);
-                }
-                if (distance_number_of_extra_bits.is_none())
-                {
-                    println!("no distance number of bits for code of: {}", distance_code);
-                    eprintln!("distance_values = {:?}", distance_values);
-                }
+                // if (distance_base.is_none())
+                // {
+                //     println!("no distance base for code of: {}", distance_code);
+                //     eprintln!("distance_values = {:?}", distance_values);
+                // }
+                // if (distance_number_of_extra_bits.is_none())
+                // {
+                //     println!("no distance number of bits for code of: {}", distance_code);
+                //     eprintln!("distance_values = {:?}", distance_values);
+                // }
                 let distance = distance_base.unwrap()
                     + byte_stream
                         .read_number_from_arbitrary_bits(distance_number_of_extra_bits.unwrap())
                         .unwrap() as u16;
-                println!("Seek -{} and copy {} bits", distance, length);
+                // println!("Seek -{} and copy {} bits", distance, length);
                 ret_cursor
                     .seek(SeekFrom::Current(distance as i64 * -1i64))
                     .unwrap();
