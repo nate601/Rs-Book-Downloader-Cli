@@ -613,11 +613,9 @@ impl PkZipFile
         }
         match self.compression_method
         {
-            CompressionMethod::NoCompression => return Ok(self.compressed_data.to_vec()),
+            CompressionMethod::NoCompression => Ok(self.compressed_data.to_vec()),
             CompressionMethod::Deflated =>
             {
-                let ret_val: Vec<u8> = Vec::new();
-                let mut ret_cursor = Cursor::new(ret_val);
                 let mut compressed_byte_arrays: Vec<BitArray> = Vec::new();
                 for i in self.compressed_data.to_vec()
                 {
@@ -625,45 +623,48 @@ impl PkZipFile
                 }
                 let mut byte_stream = ByteStream::new(compressed_byte_arrays);
 
-                loop
-                {
-                    // println!("New block!!######################");
-                    let is_last_block = byte_stream.read_bit().unwrap();
-                    let compression_type_indicator =
-                        byte_stream.read_number_from_arbitrary_bits(2).unwrap();
-                    let compression_type = get_deflate_compression_type(compression_type_indicator);
-                    // println!("Compression type: {:#?} ", compression_type);
-                    match compression_type
-                    {
-                        DeflateCompressionType::Stored =>
-                        {
-                            extract_stored(&mut byte_stream, &mut ret_cursor);
-                        }
-                        DeflateCompressionType::FixedHuffman =>
-                        {
-                            extract_fixed_huffman(&mut byte_stream, &mut ret_cursor);
-                        }
-                        DeflateCompressionType::DynamicHuffman =>
-                        {
-                            extract_dynamic_huffman(&mut byte_stream, &mut ret_cursor);
-                        }
-                        DeflateCompressionType::Reserved =>
-                        {
-                            return Err(
-                                "Malformed zip file, DeflateCompresionType is of Reserved type.",
-                            )
-                        }
-                    };
-
-                    if is_last_block
-                    {
-                        // println!("Last block");
-                        break;
-                    }
-                }
-                return Ok(ret_cursor.into_inner());
+                let decompressed_byte_array = decompress_deflate(byte_stream);
+                Ok(decompressed_byte_array)
             }
-            _ => return Err("Unimplemented"),
+            _ => Err("Unimplemented"),
+        }
+    }
+}
+
+fn decompress_deflate(mut byte_stream: ByteStream) -> Vec<u8> {
+    loop
+    {
+        // println!("New block!!######################");
+        let is_last_block = byte_stream.read_bit().unwrap();
+        let compression_type_indicator =
+            byte_stream.read_number_from_arbitrary_bits(2).unwrap();
+        let compression_type = get_deflate_compression_type(compression_type_indicator);
+        let ret_val: Vec<u8> = Vec::new();
+        let mut ret_cursor = Cursor::new(ret_val);
+        // println!("Compression type: {:#?} ", compression_type);
+        match compression_type
+        {
+            DeflateCompressionType::Stored =>
+            {
+                extract_stored(&mut byte_stream, &mut ret_cursor);
+            }
+            DeflateCompressionType::FixedHuffman =>
+            {
+                extract_fixed_huffman(&mut byte_stream, &mut ret_cursor);
+            }
+            DeflateCompressionType::DynamicHuffman =>
+            {
+                extract_dynamic_huffman(&mut byte_stream, &mut ret_cursor);
+            }
+            DeflateCompressionType::Reserved =>
+            {
+                panic!("Malformed deflate stream");
+            }
+        };
+
+        if is_last_block
+        {
+            return ret_cursor.into_inner();
         }
     }
 }
@@ -807,17 +808,14 @@ fn extract_dynamic_huffman(byte_stream: &mut ByteStream, ret_cursor: &mut Cursor
         HuffmanTree::construct_from_bitlengths(&distance_values, &distance_ht_bit_lengths);
     let (_, _, length_values, distance_valuess) = get_fixed_huffman_trees();
     let ret_val: Vec<u8> = Vec::new();
-    let mut ret_cursor = Cursor::new(ret_val);
     extract_using_given_huffman_trees(
         byte_stream,
         literal_length_ht,
         length_values,
         distance_ht,
         distance_valuess,
-        &mut ret_cursor,
+        ret_cursor,
     );
-    let text = String::from_utf8(ret_cursor.into_inner()).unwrap();
-    // eprintln!("text = {:?}", text);
 }
 
 fn extract_stored(byte_stream: &mut ByteStream, ret_cursor: &mut Cursor<Vec<u8>>)
