@@ -78,21 +78,68 @@ fn main()
     // println!("{:#?}", pkzip);
     // println!("{:#?}", pkzip_files);
     let decompressed_data = list_file.decompress().unwrap();
-    println!("{:?}", decompressed_data);
+    // println!("{:?}", decompressed_data);
     let decompressed_string = String::from_utf8(decompressed_data).unwrap();
     println!("{:?}", decompressed_string);
 
-
     //: parse the txt file from Searchbot
+
+    let split_string: Vec<&str> = decompressed_string
+        .split("\r\n")
+        .filter(|x| x.starts_with('!'))
+        .collect();
+    eprintln!("split_string = {:#?}", split_string);
+
+    let packlist = split_string
+        .into_iter()
+        .map(|x| Pack::new(x))
+        .collect::<Vec<Pack>>();
 
     //:Present in a table the choices to the user
 
-    //:Once user has selected choice, send a new message in the IRC channel
+    println!("There are {} results.", { packlist.len() });
+
+    for (i, e) in packlist.into_iter().enumerate()
+    {
+        println!("{}: {}'s {}", i, e.author, e.book_title);
+    }
+
+    //:Once user has selected choice, verify bot is online send a new message in the IRC channel
+    //
 
     //:wait for DCC request then save file
 }
 
+#[derive(Debug)]
+struct Pack
+{
+    value: String,
+    bot_source: String,
+    author: String,
+    book_title: String,
+    file_size: String,
+}
 
+impl Pack
+{
+    pub fn new(value: &str) -> Self
+    {
+        let chunks_space = value.split(' ').collect::<Vec<&str>>();
+        let bot_source = chunks_space[0].replace("!", "");
+        let author_title_split = chunks_space[1].split('-').collect::<Vec<&str>>();
+        let file_size = chunks_space.last().unwrap().to_string();
+        let author = author_title_split[0].to_string();
+        let book_title = author_title_split.last().unwrap().to_string();
+
+        Self {
+            value: value.to_string(),
+            bot_source,
+            file_size,
+            author,
+            book_title,
+        }
+    }
+}
 
 fn receive_new_dcc(read_loop_receiver: &mpsc::Receiver<IrcMessage>) -> IrcMessage
 {
