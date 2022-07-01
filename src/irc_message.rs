@@ -96,6 +96,25 @@ impl IrcMessage
                     inner_params: inner_text_split,
                 }
             }
+            "353" => MessageCommand::RPL_NAME_REPLY {
+                channel: params.get(2).unwrap().to_string(),
+                names: params
+                    .get(3)
+                    .unwrap()
+                    .split(" ")
+                    .map(|x| {
+                        let k = x.to_string();
+                        if (k.starts_with('+') || k.starts_with('!'))
+                        {
+                            return k.chars().skip(1).collect::<String>();
+                        }
+                        else
+                        {
+                            k
+                        }
+                    })
+                    .collect::<Vec<String>>(),
+            },
             _ => MessageCommand::NONHANDLED,
         };
         return Ok(IrcMessage {
@@ -125,6 +144,11 @@ pub enum MessageCommand
         inner_message: Option<CtcpMessage>,
         inner_text: String,
         inner_params: Vec<String>,
+    },
+    RPL_NAME_REPLY
+    {
+        channel: String,
+        names: Vec<String>,
     },
     NONHANDLED,
     EMPTY,
@@ -192,8 +216,8 @@ impl CtcpMessage
 
         let converted_ip = CtcpMessage::convert_ip(address.to_string()).unwrap();
         let mut ret_val = String::new();
-        // ret_val.push_str(converted_ip.as_str());
-        ret_val.push_str("192.168.1.29");
+        ret_val.push_str(converted_ip.as_str());
+        // ret_val.push_str("192.168.1.29");
         ret_val.push_str(":");
         ret_val.push_str(port.as_str());
         return Ok(ret_val);

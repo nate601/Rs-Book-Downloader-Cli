@@ -1,6 +1,6 @@
 use std::{
     io::{BufReader, Write},
-    net::TcpStream,
+    net::TcpStream, collections::HashMap,
 };
 
 pub enum ConnectionStatus
