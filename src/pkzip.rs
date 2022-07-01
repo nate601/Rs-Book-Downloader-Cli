@@ -946,28 +946,36 @@ fn extract_using_given_huffman_trees(
                     .read_number_from_arbitrary_bits(distance_number_of_extra_bits.unwrap())
                     .unwrap() as u16;
                 let distance = distance_base.unwrap() + distance_modifier;
-                println!(
-                    "Iteration: {}/{}\nCurPos: {} \n\tSeek {} ({} + {})={} and copy {} ({} + {})={} bits\n\t{}",
-                    match_iterations,
-                    debug_iterations,
-                    ret_cursor.position(),
-                    distance_code,
-                    distance_base.unwrap(),
-                    distance_modifier,
-                    distance,
-                    next_literal_or_length,
-                    length_base.unwrap(),
-                    length_modifier,
-                    length,
-                    String::from_utf8(ret_cursor.clone().into_inner()).unwrap_or("Unable to render!".to_string())
-                );
-                ret_cursor
-                    .seek(SeekFrom::Current(distance as i64 * -1i64))
-                    .unwrap();
-                let mut copy_value: Vec<u8> = vec![0; length as usize];
-                ret_cursor.read_exact(&mut copy_value).unwrap();
-                ret_cursor.seek(SeekFrom::End(0)).unwrap();
-                ret_cursor.write_all(&copy_value).unwrap();
+                // println!(
+                //     "Iteration: {}/{}\nCurPos: {} \n\tSeek {} ({} + {})={} and copy {} ({} + {})={} bits\n\t{}",
+                //     match_iterations,
+                //     debug_iterations,
+                //     ret_cursor.position(),
+                //     distance_code,
+                //     distance_base.unwrap(),
+                //     distance_modifier,
+                //     distance,
+                //     next_literal_or_length,
+                //     length_base.unwrap(),
+                //     length_modifier,
+                //     length,
+                //     String::from_utf8(ret_cursor.clone().into_inner()).unwrap_or("Unable to render!".to_string())
+                // );
+                // ret_cursor
+                //     .seek(SeekFrom::Current(distance as i64 * -1i64))
+                //     .unwrap();
+                for i in 00u16..length
+                {
+                    println!("reading byte {} out of {}  seeking -{}",i+1, length, (distance + i));
+                    ret_cursor.seek(SeekFrom::Current(-(distance as i64))).unwrap();
+                    let buf : &mut [u8;1] = &mut [0;1];
+                    ret_cursor.read_exact(buf).unwrap();
+                    ret_cursor.seek(SeekFrom::End(0)).unwrap();
+                    ret_cursor.write_all(buf).unwrap();
+                }
+                // ret_cursor.read_exact(&mut copy_value).unwrap();
+                // ret_cursor.seek(SeekFrom::End(0)).unwrap();
+                // ret_cursor.write_all(&copy_value).unwrap();
             }
         }
     }
