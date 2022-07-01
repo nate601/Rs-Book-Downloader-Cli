@@ -512,20 +512,20 @@ impl ByteStream
         number_of_bits: u16,
     ) -> Result<u16, &'static str>
     {
-        println!("reading {} bits", number_of_bits);
+        // println!("reading {} bits", number_of_bits);
         let mut bits = self.read_bits(number_of_bits)?;
-        println!("bits before transform {:?}", bits);
+        // println!("bits before transform {:?}", bits);
         // bits.reverse();
         // println!("bits after reverse but before transform {:?}", bits);
         let mut b = VecDeque::from_iter(bits);
-        
+
         while b.len() < 16
         {
             b.push_front(false);
         }
         // println!("bits after transform {:?}", b);
         let ba = BitArray::new_from_bits(&Vec::from(b));
-        println!("{}: {}", ba.get_string(), ba.get_word());
+        // println!("{}: {}", ba.get_string(), ba.get_word());
         Ok(ba.get_word())
     }
     pub fn read_bits(&mut self, number_of_bits: u16) -> Result<Vec<bool>, &'static str>
@@ -644,13 +644,16 @@ fn decompress_deflate(mut byte_stream: ByteStream) -> Vec<u8>
 {
     loop
     {
-        println!("New block!!######################");
+        // println!("New block!!######################");
         let is_last_block = byte_stream.read_bit().unwrap();
         let compression_type_indicator = byte_stream.read_number_from_arbitrary_bits(2).unwrap();
         let compression_type = get_deflate_compression_type(compression_type_indicator);
         let ret_val: Vec<u8> = Vec::new();
         let mut ret_cursor = Cursor::new(ret_val);
-        println!("Compression type: {} {:#?} ", compression_type_indicator, compression_type);
+        // println!(
+        //     "Compression type: {} {:#?} ",
+        //     compression_type_indicator, compression_type
+        // );
         match compression_type
         {
             DeflateCompressionType::Stored =>
@@ -825,7 +828,7 @@ fn extract_dynamic_huffman(byte_stream: &mut ByteStream, ret_cursor: &mut Cursor
 
 fn extract_stored(byte_stream: &mut ByteStream, ret_cursor: &mut Cursor<Vec<u8>>)
 {
-    println!("extract_stored");
+    // println!("extract_stored");
     byte_stream.skip_until_byte_aligned().unwrap();
     let mut len_buf: [u8; 2] = [0u8; 2];
     len_buf[0] = byte_stream.read_byte().unwrap();
@@ -868,7 +871,7 @@ fn extract_using_given_huffman_trees(
     let mut match_iterations = 0u16;
     loop
     {
-                debug_iterations+=1;
+        debug_iterations += 1;
         //decode literal character from input stream
         let next_literal_or_length = byte_stream.read_next_symbol(&literal_length_ht);
         if next_literal_or_length <= 255
@@ -881,7 +884,7 @@ fn extract_using_given_huffman_trees(
         }
         else
         {
-            match_iterations +=1;
+            match_iterations += 1;
             //end of block
             if next_literal_or_length == 256
             {
@@ -934,13 +937,13 @@ fn extract_using_given_huffman_trees(
                 }
                 if (distance_base.is_none())
                 {
-                    println!("no distance base for code of: {}", distance_code);
-                    eprintln!("distance_values = {:?}", distance_values);
+                    // println!("no distance base for code of: {}", distance_code);
+                    // eprintln!("distance_values = {:?}", distance_values);
                 }
                 if (distance_number_of_extra_bits.is_none())
                 {
-                    println!("no distance number of bits for code of: {}", distance_code);
-                    eprintln!("distance_values = {:?}", distance_values);
+                    // println!("no distance number of bits for code of: {}", distance_code);
+                    // eprintln!("distance_values = {:?}", distance_values);
                 }
                 let distance_modifier = byte_stream
                     .read_number_from_arbitrary_bits(distance_number_of_extra_bits.unwrap())
@@ -966,9 +969,10 @@ fn extract_using_given_huffman_trees(
                 //     .unwrap();
                 for i in 00u16..length
                 {
-                    println!("reading byte {} out of {}  seeking -{}",i+1, length, (distance + i));
-                    ret_cursor.seek(SeekFrom::Current(-(distance as i64))).unwrap();
-                    let buf : &mut [u8;1] = &mut [0;1];
+                    ret_cursor
+                        .seek(SeekFrom::Current(-(distance as i64)))
+                        .unwrap();
+                    let buf: &mut [u8; 1] = &mut [0; 1];
                     ret_cursor.read_exact(buf).unwrap();
                     ret_cursor.seek(SeekFrom::End(0)).unwrap();
                     ret_cursor.write_all(buf).unwrap();
@@ -1131,7 +1135,7 @@ impl HuffmanTree
                 count_for_each_bit_length.get(bit_length).unwrap_or(&0u16) + 1,
             );
         }
-        println!("{:#?}", count_for_each_bit_length);
+        // println!("{:#?}", count_for_each_bit_length);
 
         let mut next_address: HashMap<u16, u16> = HashMap::new();
         for i in 2..=*max_bit_length
@@ -1152,11 +1156,11 @@ impl HuffmanTree
             }
             let s = BitArray::new_from_word(*next_address.get(bit_length).unwrap()).get_string();
             let s_val = *next_address.get(bit_length).unwrap();
-            eprintln!(
-               "value {} is given address {}:{}, of bit_length {}",
-               cur_value, s, s_val, bit_length
-            );
-        eprintln!("next_address = {:#?}", next_address);
+            // eprintln!(
+            //     "value {} is given address {}:{}, of bit_length {}",
+            //     cur_value, s, s_val, bit_length
+            // );
+            // eprintln!("next_address = {:#?}", next_address);
             ht.insert(s_val, *bit_length, *cur_value);
             next_address.insert(*bit_length, s_val + 1);
         }
